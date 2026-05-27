@@ -131,6 +131,8 @@ const SAPWRITE_TYPES_ONPREM = [
   'SRVD',
   'SRVB',
   'TABL',
+  'TABL/DT',
+  'TABL/DS',
   'DOMA',
   'DTEL',
   'MSAG',
@@ -146,6 +148,8 @@ const SAPWRITE_TYPES_BTP = [
   'SRVB',
   'SKTD',
   'TABL',
+  'TABL/DT',
+  'TABL/DS',
   'DOMA',
   'DTEL',
   'MSAG',
@@ -157,6 +161,7 @@ const SAPWRITE_DESC_ONPREM =
   'Type codes are auto-normalized and case-insensitive (e.g., "CLAS/OC" → "CLAS"). ' +
   'For CLAS update, pass include="definitions"|"implementations"|"macros"|"testclasses" to update that local include natively; omit include to update source/main. ' +
   'TABL uses source-based writes via /source/main (define table syntax), similar to DDLS/BDEF/SRVD. ' +
+  'TABL create: bare "TABL" or "TABL/DT" → transparent table (16-char name limit); "TABL/DS" → DDIC structure (30-char limit, accepts namespaces like /LEOWM/X). Update/delete/activate discover subtype via SAP search, so the slash form is optional there. ' +
   'DOMA/DTEL use metadata XML writes (not /source/main): provide DDIC fields like dataType, length, fixedValues, typeKind, labels, searchHelp. ' +
   'MSAG (message classes) use metadata XML writes: provide "messages" array with {number, shortText} entries. Create empty then update, or provide messages at creation. ' +
   'SRVB (service bindings) use metadata XML writes: provide serviceDefinition (SRVD name), odataVersion ("V2"/"V4"), optional category (0=UI, 1=Web API). ' +

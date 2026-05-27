@@ -318,6 +318,9 @@ export const SAPWRITE_TYPES_ONPREM = [
   'SRVB',
   'SKTD',
   'TABL',
+  // Subtype routing for create — see docs/plans/completed/fix-tabl-ds-create-routing.md.
+  'TABL/DT',
+  'TABL/DS',
   'DOMA',
   'DTEL',
   'MSAG',
@@ -333,6 +336,8 @@ export const SAPWRITE_TYPES_BTP = [
   'SRVB',
   'SKTD',
   'TABL',
+  'TABL/DT',
+  'TABL/DS',
   'DOMA',
   'DTEL',
   'MSAG',

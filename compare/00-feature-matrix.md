@@ -165,7 +165,7 @@ Tier 2 (CycloneDX SBOM, Cosign image signing, OpenSSF Scorecard) and Tier 3 (Soc
 | AFF schema validation (pre-create) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | N/A | ❌ | ❌ |
 | Type auto-mappings (CLAS→CLAS/OC) | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | N/A | ✅ | ✅ (ADTObjectType) |
 | Create test class | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ | N/A | ✅ (abap_create_test_include) | ✅ (class write test_classes) |
-| Table write (TABL) | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | N/A | ✅ | ✅ |
+| Table write (TABL) | ✅ (TABL/DT + TABL/DS subtype routing; #285 follow-up) | ✅ | ✅ | ❌ | ❌ | ✅ | N/A | ✅ | ✅ |
 | Package create (DEVC) | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | N/A | ✅ | ✅ |
 | Service binding create (SRVB) | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | N/A | ❌ | ✅ |
 | Message class write (MSAG) | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | N/A | ❌ | ✅ |
