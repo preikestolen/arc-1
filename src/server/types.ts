@@ -144,8 +144,29 @@ export interface ServerConfig {
   cacheWarmupPackages: string;
 
   // --- Concurrency ---
-  /** Maximum concurrent SAP HTTP requests (default: 10). Prevents work process exhaustion. */
+  /** Maximum concurrent SAP HTTP requests, server-wide across all users (default: 10).
+   *  Prevents work process exhaustion. With principal propagation, one shared semaphore
+   *  enforces the cap across all per-user clients — not `maxConcurrent` per user.
+   *  See docs/adr/0004-layered-rate-limiting.md (Layer 3). */
   maxConcurrent: number;
+
+  // --- Rate limiting (Layer 1 + Layer 2) ---
+  /** Per-IP cap on OAuth endpoints (`/register`, `/authorize`, `/token`, `/revoke`) in
+   *  requests per minute. `/mcp` gets `max(value × 30, 600)/min/IP` to absorb legitimate
+   *  batch traffic. Set `0` to disable Layer 1 entirely. Default: 20.
+   *  See docs_page/rate-limiting.md (Layer 1). */
+  authRateLimit: number;
+  /** Per-user cap on MCP tool calls in requests per minute. Key = authInfo.userName
+   *  ?? clientId ?? '__anon__'. Stdio (no user identity) is exempt. Returns an MCP
+   *  tool error with `retryAfter` (not HTTP 429). Set `>0` to enable Layer 2.
+   *  **Default: `0` (disabled).** Layer 2 is the only layer that can fail
+   *  user-visible work (the others return queue-waits or HTTP 429 to a
+   *  consenting client), so it ships off by default and operators with
+   *  multi-user deployments opt in. Layers 1 and 3 stay on by default —
+   *  Layer 1 closes a CodeQL HIGH alert, Layer 3 is the per-PP-user
+   *  semaphore bug fix that started this whole feature. See
+   *  docs_page/rate-limiting.md and ADR-0004. */
+  rateLimit: number;
 
   // --- Browser-based MCP clients (CORS) ---
   /** Exact-match CORS allowlist. Empty array (the default) disables CORS entirely so that
@@ -201,6 +222,8 @@ export const DEFAULT_CONFIG: ServerConfig = {
   cacheWarmup: false,
   cacheWarmupPackages: '',
   maxConcurrent: 10,
+  authRateLimit: 20,
+  rateLimit: 0, // Layer 2 disabled by default — operators opt in (see ADR-0004)
   allowedOrigins: [],
   logLevel: 'info',
   logFormat: 'text',

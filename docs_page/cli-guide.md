@@ -28,6 +28,20 @@ Or pass CLI flags:
 arc1 --url https://host:44300 --user dev --password secret search "ZCL_*"
 ```
 
+### Rate-limit flags
+
+ARC-1 ships three rate-limiting layers; two have operator-facing flags. Defaults are conservative — most operators never need to tune these. See the [Rate Limiting Guide](rate-limiting.md) for sizing, troubleshooting, and audit-event reference.
+
+| Flag | Layer | Default | Notes |
+|------|-------|---------|-------|
+| `--max-concurrent N` | 3 | `10` | Server-wide SAP-bound semaphore cap |
+| `--auth-rate-limit N` | 1 | `20` | Per-IP OAuth/`/mcp` cap, req/min. `0` disables |
+| `--rate-limit N` | 2 | `60` | Per-user MCP quota, req/min. `0` disables |
+
+```bash
+arc1 --max-concurrent 15 --auth-rate-limit 20 --rate-limit 60
+```
+
 ## Commands
 
 ### serve (default)

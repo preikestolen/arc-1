@@ -489,6 +489,68 @@ describe('parseArgs', () => {
     expect(config.maxConcurrent).toBe(3);
   });
 
+  // --- Rate limiting (Layer 1 + Layer 2) ---
+
+  it('defaults authRateLimit to 20 (Layer 1 on) and rateLimit to 0 (Layer 2 off)', () => {
+    // ADR-0004: Layer 2 ships disabled by default — operators with multi-user
+    // deployments opt in via ARC1_RATE_LIMIT>0. Layer 1 stays on at 20/min/IP.
+    const config = parseArgs([]);
+    expect(config.authRateLimit).toBe(20);
+    expect(config.rateLimit).toBe(0);
+  });
+
+  it('parses --auth-rate-limit flag', () => {
+    const config = parseArgs(['--auth-rate-limit', '50']);
+    expect(config.authRateLimit).toBe(50);
+  });
+
+  it('parses ARC1_AUTH_RATE_LIMIT env var', () => {
+    process.env.ARC1_AUTH_RATE_LIMIT = '30';
+    const config = parseArgs([]);
+    expect(config.authRateLimit).toBe(30);
+  });
+
+  it('ARC1_AUTH_RATE_LIMIT=0 disables Layer 1', () => {
+    process.env.ARC1_AUTH_RATE_LIMIT = '0';
+    const config = parseArgs([]);
+    expect(config.authRateLimit).toBe(0);
+  });
+
+  it('parses --rate-limit flag', () => {
+    const config = parseArgs(['--rate-limit', '120']);
+    expect(config.rateLimit).toBe(120);
+  });
+
+  it('parses ARC1_RATE_LIMIT env var', () => {
+    process.env.ARC1_RATE_LIMIT = '90';
+    const config = parseArgs([]);
+    expect(config.rateLimit).toBe(90);
+  });
+
+  it('ARC1_RATE_LIMIT=0 disables Layer 2', () => {
+    process.env.ARC1_RATE_LIMIT = '0';
+    const config = parseArgs([]);
+    expect(config.rateLimit).toBe(0);
+  });
+
+  it('invalid ARC1_AUTH_RATE_LIMIT falls back to default 20', () => {
+    process.env.ARC1_AUTH_RATE_LIMIT = 'notanumber';
+    const config = parseArgs([]);
+    expect(config.authRateLimit).toBe(20);
+  });
+
+  it('invalid ARC1_RATE_LIMIT falls back to default 0 (Layer 2 disabled)', () => {
+    process.env.ARC1_RATE_LIMIT = '-5';
+    const config = parseArgs([]);
+    expect(config.rateLimit).toBe(0);
+  });
+
+  it('--auth-rate-limit takes precedence over ARC1_AUTH_RATE_LIMIT', () => {
+    process.env.ARC1_AUTH_RATE_LIMIT = '99';
+    const config = parseArgs(['--auth-rate-limit', '7']);
+    expect(config.authRateLimit).toBe(7);
+  });
+
   // --- oauthDcrTtlSeconds ---
 
   it('defaults oauthDcrTtlSeconds to 30 days', () => {
