@@ -192,6 +192,8 @@ const SAPWRITE_CLAS_INCLUDES = ['definitions', 'implementations', 'macros', 'tes
 const SAPWRITE_DESC_ONPREM =
   'Create or update ABAP source code and DDIC metadata. Handles lock/modify/unlock automatically. Supports PROG, CLAS, INTF, FUNC, FUGR, INCL, DDLS, DCLS, DDLX, BDEF, SRVD, SRVB, SKTD, TABL, TABL/DT, TABL/DS, DOMA, DTEL, MSAG. ' +
   'Type codes are auto-normalized and case-insensitive (e.g., "CLAS/OC" → "CLAS"). ' +
+  'For delete, only type and name are required (plus optional transport); other fields are ignored. ' +
+  'Optional fields may be omitted entirely — do not send empty strings or null to "skip" a field; irrelevant ones are ignored. ' +
   'For CLAS update, pass include="definitions"|"implementations"|"macros"|"testclasses" to update that local include natively; omit include to update source/main. ' +
   'TABL uses source-based writes via /source/main (define table syntax), similar to DDLS/BDEF/SRVD. ' +
   'TABL create: bare "TABL" or "TABL/DT" → transparent table (16-char name limit); "TABL/DS" → DDIC structure (30-char limit, accepts namespaces like /LEOWM/X). Update/delete/activate discover subtype via SAP search, so the slash form is optional there. ' +
@@ -215,6 +217,8 @@ const SAPWRITE_DESC_ONPREM =
 const SAPWRITE_DESC_BTP =
   'Create or update ABAP source code and DDIC metadata (BTP ABAP Environment). Handles lock/modify/unlock automatically. Supports CLAS, INTF, DDLS, DCLS, DDLX, BDEF, SRVD, SRVB, SKTD, TABL, TABL/DT, TABL/DS, DOMA, DTEL, MSAG. ' +
   'Type codes are auto-normalized and case-insensitive (e.g., "CLAS/OC" → "CLAS"). ' +
+  'For delete, only type and name are required (plus optional transport); other fields are ignored. ' +
+  'Optional fields may be omitted entirely — do not send empty strings or null to "skip" a field; irrelevant ones are ignored. ' +
   'For CLAS update, pass include="definitions"|"implementations"|"macros"|"testclasses" to update that local include natively; omit include to update source/main. ' +
   'TABL supports custom table source writes via /source/main (define table syntax). ' +
   'DOMA/DTEL use metadata XML writes (not /source/main): provide DDIC fields like dataType, length, fixedValues, typeKind, labels, searchHelp. ' +
@@ -230,6 +234,18 @@ const SAPWRITE_DESC_BTP =
   'For scaffold_rap_handlers: derive missing RAP behavior handler signatures from an interface BDEF and optionally create missing lhc_* skeletons plus inject declarations and empty implementation stubs into an existing behavior pool class. ' +
   'For generate_behavior_implementation: one-shot RAP behavior pool — auto-discover the bound BDEF via class metadata (rootEntityRef), scaffold every required handler (creating lhc_<alias> skeletons when missing), write under one lock, and (by default) activate. ' +
   'Server-driven objects (8.16+ / ABAP Cloud, discovery-gated): DESD, DTSC, CSNM, EVTB, EVTO, COTA — create/update/delete operate on the generic AFF blue:blueSource object (pass AFF JSON in "source"); create leaves the object inactive, so follow with SAPActivate. Pre-8.16 systems return a clean "requires SAP_BASIS 8.16+" error.';
+
+// Prepended to both SAPWrite descriptions. The schema lists every optional field for every
+// object type/action, but each call uses only a small subset — GPT/OpenAI callers tend to
+// fill the rest with empty/null/placeholder values. This steers the model to a minimal first
+// payload (issue #360 follow-up; the server also strips the noise at runtime as a backstop).
+const SAPWRITE_MINIMAL_PAYLOAD_GUIDE =
+  'MINIMAL PAYLOAD — send ONLY the fields your action+type needs; do NOT add unrelated optional fields. ' +
+  'Sending empty strings, null, or placeholder values for fields that do not apply to your object type ' +
+  '(e.g. typeKind/odataVersion/length/signExists on a CDS or class write) just adds noise — omit them entirely. ' +
+  'Typical field sets: a source object (CLAS, INTF, DDLS, DCLS, DDLX, BDEF, SRVD, TABL — plus PROG, INCL, FUNC on-prem) needs only {action, type, name, source}; ' +
+  "delete needs only {action, type, name}; DOMA/DTEL/MSAG/SRVB need {action, type, name} plus that type's own DDIC fields; FUNC also needs group. " +
+  'Do NOT send `include` unless type=CLAS, and do NOT send DDIC/metadata fields (dataType, length, decimals, signExists, lowercase, typeKind, domainName, odataVersion, category, version, labels, …) on a source-object or delete call. ';
 
 // ─── SAPContext Types ───────────────────────────────────────────────
 
@@ -502,6 +518,55 @@ function buildSAPSearchTool(btp: boolean, textSearchAvailable?: boolean): ToolDe
   };
 }
 
+// ─── GPT/OpenAI strict-mode nullable helper (issue #360) ────────────
+
+/** Add `null` to a property's `type` (string → ["string","null"]). Per OpenAI's Structured
+ *  Outputs guide, null goes in `type` ONLY — never added to `enum`. */
+function makeNullableType(def: Record<string, unknown>): Record<string, unknown> {
+  const d = { ...def };
+  const t = d.type;
+  if (typeof t === 'string') {
+    if (t !== 'null') d.type = [t, 'null'];
+  } else if (Array.isArray(t) && !t.includes('null')) {
+    d.type = [...t, 'null'];
+  }
+  return d;
+}
+
+/**
+ * Recursively make every NON-required property of a JSON-schema object nullable.
+ *
+ * GPT/OpenAI strict mode (the default for the Responses API) marks every property required;
+ * a non-nullable optional field then leaves the model no way to signal "unused" — for an enum
+ * it is FORCED to emit one of the values (the hallucinated typeKind=domain / odataVersion=V4
+ * seen on unrelated writes, issue #360). The OpenAI-documented fix is a union with null
+ * (`"type": ["string","null"]`) so the model can emit null = "not used"; ARC-1's runtime
+ * `stripLlmEmptyValues` then drops the nulls before Zod. Each object node's OWN `required`
+ * array decides what stays non-nullable, so it is correct at every nesting level (top level
+ * keeps `action`; batch `objects[]` items keep `type`/`name`; leaf arrays keep their keys).
+ * Pure — returns a copy, does not mutate the input.
+ */
+function makeOptionalPropertiesNullable(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(makeOptionalPropertiesNullable);
+  if (!node || typeof node !== 'object') return node;
+  const obj = node as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...obj };
+  if (obj.type === 'object' && obj.properties && typeof obj.properties === 'object') {
+    const required = new Set(Array.isArray(obj.required) ? (obj.required as string[]) : []);
+    const newProps: Record<string, unknown> = {};
+    for (const [key, def] of Object.entries(obj.properties as Record<string, unknown>)) {
+      let processed = makeOptionalPropertiesNullable(def);
+      if (!required.has(key) && processed && typeof processed === 'object' && !Array.isArray(processed)) {
+        processed = makeNullableType(processed as Record<string, unknown>);
+      }
+      newProps[key] = processed;
+    }
+    result.properties = newProps;
+  }
+  if (obj.items !== undefined) result.items = makeOptionalPropertiesNullable(obj.items);
+  return result;
+}
+
 // ─── Main Tool Definitions ──────────────────────────────────────────
 
 export function getToolDefinitions(
@@ -646,7 +711,7 @@ export function getToolDefinitions(
 
   // Write tools — only registered when writes are enabled
   if (config.allowWrites) {
-    let sapWriteDesc = btp ? SAPWRITE_DESC_BTP : SAPWRITE_DESC_ONPREM;
+    let sapWriteDesc = SAPWRITE_MINIMAL_PAYLOAD_GUIDE + (btp ? SAPWRITE_DESC_BTP : SAPWRITE_DESC_ONPREM);
     // Append package restriction info so the LLM knows its boundaries
     if (config.allowedPackages.length > 0) {
       const pkgList = config.allowedPackages.join(', ');
@@ -655,7 +720,9 @@ export function getToolDefinitions(
     tools.push({
       name: 'SAPWrite',
       description: sapWriteDesc,
-      inputSchema: {
+      // Make optional fields nullable so GPT/OpenAI strict-mode callers can emit null for
+      // unused fields instead of fabricating values; the runtime strip removes the nulls (#360).
+      inputSchema: makeOptionalPropertiesNullable({
         type: 'object',
         properties: {
           action: {
@@ -698,7 +765,7 @@ export function getToolDefinitions(
             type: 'string',
             enum: SAPWRITE_CLAS_INCLUDES,
             description:
-              'For CLAS write actions update, edit_method, and edit_class_definition: target a class-local include instead of /source/main. Valid values: definitions (CCDEF), implementations (CCIMP), macros, testclasses. Omit include to operate on source/main. add_method/edit_method_signature/delete_method/change_method_visibility operate on the global class /source/main only and reject include=. For edit_method, ARC-1 also auto-detects the include from the method specifier (lhc_*/lcl_* → implementations, ltc_* → testclasses); explicit include= overrides auto-detection. Include writes create an inactive draft; read with SAPRead version="inactive" before activation. NOTE: edit_class_definition with include= skips the symmetry refuse-policy — cross-include validation is not performed; rely on SAPActivate to catch breaks.',
+              'CLAS-ONLY. Do NOT send this field unless type=CLAS AND action is one of update / edit_method / edit_class_definition. OMIT it entirely for every other object type (PROG, INTF, INCL, FUNC, FUGR, DDLS, DCLS, DDLX, BDEF, SRVD, SRVB, TABL, DOMA, DTEL, MSAG) and for delete / batch_create / add_method / edit_method_signature / delete_method / change_method_visibility (those operate on the global class /source/main). When it does apply: target a class-local include instead of /source/main — definitions (CCDEF), implementations (CCIMP), macros, testclasses; omit it to operate on source/main. For edit_method, ARC-1 auto-detects the include from the method specifier (lhc_*/lcl_* → implementations, ltc_* → testclasses), so you usually need not pass it. Include writes create an inactive draft; read with SAPRead version="inactive" before activation. NOTE: edit_class_definition with include= skips the symmetry refuse-policy — cross-include validation is not performed; rely on SAPActivate to catch breaks.',
           },
           method: {
             type: 'string',
@@ -985,7 +1052,7 @@ export function getToolDefinitions(
           },
         },
         required: ['action'],
-      },
+      }) as Record<string, unknown>,
     });
 
     tools.push({
