@@ -1261,10 +1261,11 @@ export async function handleToolCall(
   return requestContext.run({ requestId: reqId, user, tool: toolName }, async () => {
     try {
       let result: ToolResult;
+      const cacheSecurity = buildCacheSecurityContext(authInfo, isPerUserClient);
 
       switch (toolName) {
         case 'SAPRead':
-          result = await handleSAPRead(client, args, cachingLayer);
+          result = await handleSAPRead(client, args, cachingLayer, cacheSecurity);
           break;
         case 'SAPSearch':
           result = await handleSAPSearch(client, args);
@@ -1273,10 +1274,10 @@ export async function handleToolCall(
           result = await handleSAPQuery(client, args);
           break;
         case 'SAPWrite':
-          result = await handleSAPWrite(client, args, config, cachingLayer);
+          result = await handleSAPWrite(client, args, config, cachingLayer, cacheSecurity);
           break;
         case 'SAPActivate':
-          result = await handleSAPActivate(client, args, cachingLayer);
+          result = await handleSAPActivate(client, args, cachingLayer, cacheSecurity);
           break;
         case 'SAPNavigate':
           result = await handleSAPNavigate(client, args);
@@ -1294,7 +1295,7 @@ export async function handleToolCall(
           result = await handleSAPGit(client, args, authInfo);
           break;
         case 'SAPContext':
-          result = await handleSAPContext(client, args, cachingLayer);
+          result = await handleSAPContext(client, args, cachingLayer, cacheSecurity);
           break;
         case 'SAPManage':
           result = await handleSAPManage(client, config, args, cachingLayer, isPerUserClient);
@@ -1414,6 +1415,10 @@ const BTP_HINTS: Record<string, string> = {
 
 type SourceVersion = 'active' | 'inactive';
 type RequestedSourceVersion = SourceVersion | 'auto';
+interface CacheSecurityContext {
+  isPerUserClient: boolean;
+  userKey?: string;
+}
 
 const VERSIONED_SOURCE_READ_TYPES = new Set([
   'PROG',
@@ -1436,12 +1441,71 @@ function inactiveTypeMatches(readType: string, inactiveType: string): boolean {
   return (inactiveType.split('/')[0] ?? inactiveType).toUpperCase() === readType.toUpperCase();
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveCacheUserKey(authInfo: AuthInfo | undefined): string | undefined {
+  if (!authInfo) return undefined;
+  const extra = (authInfo.extra ?? {}) as {
+    userName?: unknown;
+    email?: unknown;
+    sub?: unknown;
+    preferred_username?: unknown;
+    iss?: unknown;
+  };
+  const issuerOrClient = nonEmptyString(extra.iss) ?? nonEmptyString(authInfo.clientId) ?? 'unknown-auth-source';
+  const namespace = issuerOrClient.toLowerCase();
+
+  const userName = nonEmptyString(extra.userName);
+  if (userName) return `${namespace}:userName:${userName.toUpperCase()}`;
+
+  const email = nonEmptyString(extra.email);
+  if (email) return `${namespace}:email:${email.toLowerCase()}`;
+
+  const sub = nonEmptyString(extra.sub);
+  if (sub) return `${namespace}:sub:${sub}`;
+
+  const preferredUsername = nonEmptyString(extra.preferred_username);
+  if (preferredUsername) return `${namespace}:preferred_username:${preferredUsername.toLowerCase()}`;
+
+  return undefined;
+}
+
+function buildCacheSecurityContext(authInfo: AuthInfo | undefined, isPerUserClient?: boolean): CacheSecurityContext {
+  if (!isPerUserClient) return { isPerUserClient: false };
+  return {
+    isPerUserClient: true,
+    userKey: resolveCacheUserKey(authInfo),
+  };
+}
+
+function inactiveListUserKey(client: AdtClient, cacheSecurity?: CacheSecurityContext): string | undefined {
+  return cacheSecurity?.isPerUserClient ? cacheSecurity.userKey : client.username;
+}
+
+function invalidateInactiveList(
+  cachingLayer: CachingLayer | undefined,
+  client: AdtClient,
+  cacheSecurity?: CacheSecurityContext,
+): void {
+  cachingLayer?.inactiveLists.invalidate(inactiveListUserKey(client, cacheSecurity));
+}
+
+function contextCacheForDependencyPayloads(
+  cachingLayer: CachingLayer | undefined,
+  cacheSecurity?: CacheSecurityContext,
+): CachingLayer | undefined {
+  return cacheSecurity?.isPerUserClient ? undefined : cachingLayer;
+}
+
 async function resolveVersionAndDraftInfo(
   client: AdtClient,
   cachingLayer: CachingLayer | undefined,
   type: string,
   name: string,
   requestedVersion: RequestedSourceVersion,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<{ effectiveVersion: SourceVersion; draft?: InactiveObject }> {
   if (!VERSIONED_SOURCE_READ_TYPES.has(type)) {
     return { effectiveVersion: requestedVersion === 'auto' ? 'active' : requestedVersion };
@@ -1451,7 +1515,7 @@ async function resolveVersionAndDraftInfo(
   if (cachingLayer || requestedVersion !== 'active') {
     try {
       const inactiveObjects = cachingLayer
-        ? await cachingLayer.inactiveLists.getOrFetch(client)
+        ? await cachingLayer.inactiveLists.getOrFetch(client, inactiveListUserKey(client, cacheSecurity))
         : await client.getInactiveObjects();
       const upperName = name.toUpperCase();
       draft = inactiveObjects.find(
@@ -1489,6 +1553,7 @@ async function handleSAPRead(
   client: AdtClient,
   args: Record<string, unknown>,
   cachingLayer?: CachingLayer,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<ToolResult> {
   const type = normalizeObjectType(String(args.type ?? ''));
   const name = String(args.name ?? '');
@@ -1516,7 +1581,7 @@ async function handleSAPRead(
   }
 
   if (args.force_refresh === true && cachingLayer && VERSIONED_SOURCE_READ_TYPES.has(type)) {
-    cachingLayer.inactiveLists.invalidate(client.username);
+    invalidateInactiveList(cachingLayer, client, cacheSecurity);
     cachingLayer.invalidate(type, name, 'all');
   }
 
@@ -1526,6 +1591,7 @@ async function handleSAPRead(
     type,
     name,
     requestedVersion,
+    cacheSecurity,
   );
   const versionWarning = sourceVersionWarning(effectiveVersion, draft);
 
@@ -3780,6 +3846,7 @@ async function handleServerDrivenObjectWrite(
   name: string,
   args: Record<string, unknown>,
   cachingLayer?: CachingLayer,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<ToolResult> {
   // Discovery gate — mirror handleSAPRead's server-driven branch.
   if (supportsServerDrivenObject(client.http, type) === false) {
@@ -3795,7 +3862,7 @@ async function handleServerDrivenObjectWrite(
 
   const invalidate = (): void => {
     cachingLayer?.invalidate(type, name, 'all');
-    cachingLayer?.inactiveLists.invalidate(client.username);
+    invalidateInactiveList(cachingLayer, client, cacheSecurity);
   };
 
   // SDO source is AFF JSON (not ABAP) — validate it parses before any PUT.
@@ -3870,6 +3937,7 @@ async function handleSAPWrite(
   args: Record<string, unknown>,
   config: ServerConfig,
   cachingLayer?: CachingLayer,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<ToolResult> {
   const action = String(args.action ?? '');
   const type = normalizeWriteObjectType(String(args.type ?? ''));
@@ -3915,7 +3983,7 @@ async function handleSAPWrite(
   // objectBasePath(<sdo>) throws, so this MUST come before the objectUrl computation. Mirrors the
   // server-driven branch in handleSAPRead.
   if (isServerDrivenObjectType(type)) {
-    return handleServerDrivenObjectWrite(client, action, type, name, args, cachingLayer);
+    return handleServerDrivenObjectWrite(client, action, type, name, args, cachingLayer, cacheSecurity);
   }
 
   // For TABL update/delete/edit_method, the existing object may live at /tables/
@@ -3991,7 +4059,7 @@ async function handleSAPWrite(
   const invalidateWrittenObject = (objType = type, objName = name): void => {
     // Source cache is keyed by canonical type (SAPRead collapses TABL/DT, TABL/DS).
     cachingLayer?.invalidate(canonicalTablType(objType), objName, 'all');
-    cachingLayer?.inactiveLists.invalidate(client.username);
+    invalidateInactiveList(cachingLayer, client, cacheSecurity);
   };
 
   // Helper: enforce allowedPackages for existing objects (update/delete/edit_method/scaffold_rap_handlers).
@@ -4013,7 +4081,14 @@ async function handleSAPWrite(
   async function fetchClassStructureAndMain(
     clsName: string,
   ): Promise<{ structure: ClassStructure; main: string; effectiveVersion: SourceVersion }> {
-    const { effectiveVersion } = await resolveVersionAndDraftInfo(client, cachingLayer, 'CLAS', clsName, 'auto');
+    const { effectiveVersion } = await resolveVersionAndDraftInfo(
+      client,
+      cachingLayer,
+      'CLAS',
+      clsName,
+      'auto',
+      cacheSecurity,
+    );
     const structure = await client.getClassStructure(clsName, effectiveVersion);
     const main = cachingLayer
       ? (
@@ -4536,7 +4611,14 @@ async function handleSAPWrite(
         // splice against stale content (and frequently "method not found").
         // Use the standard inactive-list lookup to pick the right version —
         // same auto-resolution semantics SAPRead exposes via `version='auto'`.
-        const { effectiveVersion } = await resolveVersionAndDraftInfo(client, cachingLayer, 'CLAS', name, 'auto');
+        const { effectiveVersion } = await resolveVersionAndDraftInfo(
+          client,
+          cachingLayer,
+          'CLAS',
+          name,
+          'auto',
+          cacheSecurity,
+        );
         const fetched = await client.getClass(name, resolvedInclude, { version: effectiveVersion });
         currentSource = stripIncludeHeader(fetched.source);
         // If the include itself has no draft (only MAIN does), SAP returns the
@@ -5622,7 +5704,7 @@ async function handleSAPWrite(
           for (const o of writtenObjects) {
             cachingLayer?.invalidate(o.type, o.name, 'all');
           }
-          cachingLayer?.inactiveLists.invalidate(client.username);
+          invalidateInactiveList(cachingLayer, client, cacheSecurity);
         } else {
           // Flip every written-but-not-yet-activated entry to 'failed', preserving the
           // "create + source-write succeeded" context. Reuse the existing per-object
@@ -5915,6 +5997,7 @@ async function handleSAPActivate(
   client: AdtClient,
   args: Record<string, unknown>,
   cachingLayer?: CachingLayer,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<ToolResult> {
   const action = String(args.action ?? 'activate');
   const name = String(args.name ?? '');
@@ -6093,7 +6176,7 @@ async function handleSAPActivate(
       for (const object of objects) {
         cachingLayer?.invalidate(object.type, object.name, 'all');
       }
-      cachingLayer?.inactiveLists.invalidate(client.username);
+      invalidateInactiveList(cachingLayer, client, cacheSecurity);
       return textResult(`Successfully activated ${objects.length} objects: ${names}.${statusDetails}`);
     }
     // On batch failure enrich with per-object inactive-version syntax errors —
@@ -6168,7 +6251,7 @@ async function handleSAPActivate(
 
   if (result.success) {
     cachingLayer?.invalidate(type, name, 'all');
-    cachingLayer?.inactiveLists.invalidate(client.username);
+    invalidateInactiveList(cachingLayer, client, cacheSecurity);
     return textResult(`Successfully activated ${type} ${name}.${formatActivationMessages(result)}`);
   }
   // On failure, try to enrich with the actual compiler errors from the inactive version —
@@ -7369,6 +7452,7 @@ async function handleSAPContext(
   client: AdtClient,
   args: Record<string, unknown>,
   cachingLayer?: CachingLayer,
+  cacheSecurity?: CacheSecurityContext,
 ): Promise<ToolResult> {
   const action = String(args.action ?? '');
   // action="impact" is DDLS-only on the server side — default the type so LLMs
@@ -7386,6 +7470,12 @@ async function handleSAPContext(
   // ─── Reverse dep lookup (pre-warmer only) ─────────────────────────
   if (action === 'usages') {
     if (!name) return errorResult('"name" is required for usages action.');
+    if (cacheSecurity?.isPerUserClient) {
+      return errorResult(
+        'SAPContext(action="usages") is disabled under principal propagation because it reads the shared warmup index. ' +
+          `Use SAPNavigate(action="references", type="${type || 'CLAS'}", name="${name}") for a live SAP-authorized lookup.`,
+      );
+    }
     if (!cachingLayer) {
       return errorResult(
         'Reverse dependency lookup requires object caching. Cache is disabled (ARC1_CACHE=none). ' +
@@ -7662,7 +7752,14 @@ async function handleSAPContext(
       }
       case 'DDLS': {
         const ddlSource = await cachedGet('DDLS', name, (ifNoneMatch) => client.getDdls(name, { ifNoneMatch }));
-        const cdsResult = await compressCdsContext(client, ddlSource, name, maxDeps, depth, cachingLayer);
+        const cdsResult = await compressCdsContext(
+          client,
+          ddlSource,
+          name,
+          maxDeps,
+          depth,
+          contextCacheForDependencyPayloads(cachingLayer, cacheSecurity),
+        );
         return textResult(cdsResult.output);
       }
       default:
@@ -7671,8 +7768,9 @@ async function handleSAPContext(
   }
 
   // Check dep graph cache — if source hash matches, return cached contracts
-  if (cachingLayer) {
-    const cachedGraph = cachingLayer.getCachedDepGraph(source);
+  const dependencyPayloadCache = contextCacheForDependencyPayloads(cachingLayer, cacheSecurity);
+  if (dependencyPayloadCache) {
+    const cachedGraph = dependencyPayloadCache.getCachedDepGraph(source);
     if (cachedGraph) {
       const successful = cachedGraph.contracts.filter((c) => c.success);
       const failed = cachedGraph.contracts.filter((c) => !c.success);
@@ -7708,7 +7806,16 @@ async function handleSAPContext(
     ? mapSapReleaseToAbaplintVersion(cachedFeatures.abapRelease)
     : undefined;
 
-  const result = await compressContext(client, source, name, type, maxDeps, depth, abaplintVersion, cachingLayer);
+  const result = await compressContext(
+    client,
+    source,
+    name,
+    type,
+    maxDeps,
+    depth,
+    abaplintVersion,
+    dependencyPayloadCache,
+  );
   return textResult(result.output);
 }
 
