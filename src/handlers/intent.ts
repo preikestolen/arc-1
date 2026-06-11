@@ -5940,6 +5940,12 @@ async function handleSAPActivate(
     if (!name) {
       return errorResult('Missing required "name" parameter for publish_srvb action.');
     }
+    await enforceAllowedPackageForObjectUrl(
+      client,
+      objectUrlForType('SRVB', name),
+      `Publish of service binding '${name}'`,
+      SERVICEBINDING_V2_CONTENT_TYPE,
+    );
     const serviceType = await resolveServiceType();
     const result = await publishServiceBinding(client.http, client.safety, name, version, serviceType);
     if (result.severity === 'ERROR') {
@@ -5984,6 +5990,12 @@ async function handleSAPActivate(
     if (!name) {
       return errorResult('Missing required "name" parameter for unpublish_srvb action.');
     }
+    await enforceAllowedPackageForObjectUrl(
+      client,
+      objectUrlForType('SRVB', name),
+      `Unpublish of service binding '${name}'`,
+      SERVICEBINDING_V2_CONTENT_TYPE,
+    );
     const serviceType = await resolveServiceType();
     const result = await unpublishServiceBinding(client.http, client.safety, name, version, serviceType);
     if (result.severity === 'ERROR') {
