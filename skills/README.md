@@ -124,6 +124,8 @@ Both skills produce the same RAP artifact stack. The difference is how they get 
 - `SAPSearch(searchType="tadir_lookup", source="both")` for one-shot existence checks against both released and inactive variants, with a `splitBrain` warning when an object exists only in one source — used by `migrate-segw-to-rap` Phase 6a (ARC-1 v0.9.5+ / PR #270)
 - `SAPWrite(action="batch_create", activateAtEnd: true)` for atomic CDS-composition activation — replaces per-file + manual terminal activation in `migrate-segw-to-rap` Step 2 (ARC-1 v0.9.5+ / PR #270)
 - `SAPTransport(action="history")` for object-to-transport traceability during later iterations
+- `SAPRead(action="diff", from=…, to=…)` for server-side single-system version diffs (active↔inactive, or revision↔active) returning only hunks — powers `sap-transport-review` (ARC-1 PR #445)
+- `SAPTransport(action="list", summary=true)` for a headers-only transport overview (omits `objects[]`, keeps `objectCount`) — cheap scan before drilling in, also used by `sap-transport-review` (ARC-1 PR #448)
 - `SAPLint(action="format" | "get_formatter_settings")` for SAP-native keyword case and indentation
 - `SAPRead` / `SAPWrite` for `SKTD` so generated RAP services can carry attached Markdown documentation
 - `SAPGit` when a package is already part of an abapGit or gCTS-backed delivery flow
@@ -135,6 +137,8 @@ Both skills produce the same RAP artifact stack. The difference is how they get 
 | [explain-abap-code](explain-abap-code/SKILL.md) | Reads an ABAP object, fetches all dependencies via SAPContext, and produces a structured explanation — including behavior definitions (BDEF: parses `implementation in class`, reads the behavior pool CCIMP handlers, runs SAPContext impact on the bound CDS root) | Onboarding to unfamiliar code, investigating bugs, documenting undocumented objects, understanding a RAP behavior (SAP Joule "AI Explain for Behavior Definitions" parity) |
 | [migrate-custom-code](migrate-custom-code/SKILL.md) | Runs ATC readiness checks, groups findings by priority, and generates replacement code | Preparing custom code for S/4HANA migration or ABAP Cloud readiness |
 | [sap-object-documenter](sap-object-documenter/SKILL.md) | Batch-documents many custom objects at once — purpose, style (Classic/Modern/Mixed), dependencies — as Markdown | Onboarding packages, handoffs, seeding a repo wiki (vs. explain-abap-code which is single-object interactive) |
+| [sap-transport-review](sap-transport-review/SKILL.md) | Reviews what *changed* — in a transport or in your unactivated drafts — as per-object unified diffs (`SAPTransport summary` to scan, `SAPRead action="diff"` to diff) plus risk flags and optional impact/ATC. The headless/whole-transport twin of Eclipse ADT 3.6's "Object Changes" | Pre-release/pre-activation gate, reviewing a transport (senior dev), "what have I changed since my last release?", change hand-off or audit |
+| [sap-transport-overview](sap-transport-overview/SKILL.md) | System-wide inventory of every open transport (all users) — owner, size, and risk flags (object in two requests, $TMP, stale, empty) via `SAPTransport(list, summary=true, user="*")`. Breadth, no diffs — the companion to sap-transport-review | Basis/release manager: "what's open across the system and what's risky to import", backlog & cleanup, pre-go-live conflict check |
 
 ### Clean Core & Custom Code Retirement
 
