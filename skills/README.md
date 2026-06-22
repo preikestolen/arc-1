@@ -50,7 +50,7 @@ Copy the whole `skills/<skill-name>/` directory into your tool's skills director
 |---|---|---|
 | Claude Code | `.claude/skills/<name>/` | `~/.claude/skills/<name>/` |
 | Cursor | `.agents/skills/<name>/` | `~/.cursor/skills/<name>/` |
-| GitHub Copilot (VS Code) | `.agents/skills/<name>/` | `~/.copilot/skills/<name>/` |
+| GitHub Copilot (VS Code/Eclipse) | `.agents/skills/<name>/` | `~/.copilot/skills/<name>/` |
 | OpenAI Codex (CLI) | `.agents/skills/<name>/` | `~/.codex/skills/<name>/` |
 | Gemini CLI | `.agents/skills/<name>/` | `~/.gemini/skills/<name>/` |
 | OpenCode | `.agents/skills/<name>/` | `~/.config/opencode/skills/<name>/` |
@@ -64,6 +64,68 @@ cp -r /tmp/arc-1/skills/generate-rap-service .claude/skills/
 ```
 
 For tools not listed above, copy the body of `SKILL.md` into your tool's system prompt, custom instructions, or project context file. The skills are self-contained — they work anywhere you can provide custom instructions.
+
+## Eclipse ADT + GitHub Copilot
+
+For Eclipse ADT, use GitHub Copilot **Agent Skills** in Agent Mode. Eclipse does not list skills in the **Custom Agents** table; that table is only for optional `.github/agents/<name>.agent.md` custom agents. Skills appear in chat as `/skill:<name>` entries when **Enable Skills** is turned on.
+
+Keep skills in a normal local Eclipse project, not inside the ABAP system/package tree. ADT's ABAP projects are semantic repository views, so Copilot may not see local instruction files unless you import a real filesystem folder into the workspace.
+
+Recommended setup:
+
+```bash
+# macOS / Linux
+mkdir -p ~/ADT_ECLIPSE_ARC1
+cd ~/ADT_ECLIPSE_ARC1
+npx skills add arc-mcp/arc-1 --agent github-copilot
+```
+
+```powershell
+# Windows PowerShell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\ADT_ECLIPSE_ARC1"
+Set-Location "$env:USERPROFILE\ADT_ECLIPSE_ARC1"
+npx skills add arc-mcp/arc-1 --agent github-copilot
+```
+
+You can optionally create `.github/agents/arc1-abap.agent.md` with a short ARC-1 ABAP agent profile, but that is not required for `/skill:*` commands to work.
+
+Then in Eclipse:
+
+1. Import `~/ADT_ECLIPSE_ARC1` on macOS/Linux or `%USERPROFILE%\ADT_ECLIPSE_ARC1` on Windows with **File → Open Projects from File System...**.
+2. If dot folders are hidden, disable the `.* resources` filter in Project Explorer.
+3. Turn on **Window → Preferences → GitHub Copilot → Chat → Enable Skills**.
+4. Use Copilot Chat **Agent Mode** and configure ARC-1 as an MCP server under **GitHub Copilot → MCP**.
+5. Type `/` in chat and confirm entries such as `/skill:sap-unused-code` or `/skill:generate-rap-service` appear. If newly added skills do not show up, open a new Agent Mode chat and restart Eclipse.
+
+Use **Window → Preferences → GitHub Copilot → Custom Instructions** only for short always-on workspace instructions or project `.github/copilot-instructions.md` files. Do not paste the full skill catalog there.
+
+Full setup, including ARC-1 MCP JSON examples and troubleshooting, is in the published [Skills guide](https://docs.arc-1-mcp.com/skills/#github-copilot-in-eclipse-with-adt).
+
+## VS Code ADT + GitHub Copilot
+
+For SAP's ABAP Development Tools for VS Code, use a multi-root workspace:
+
+1. Add your ABAP destination or package using the SAP ADT commands, such as **ABAP: New Destination** and **ABAP: Add Package as Folder to Workspace...**.
+2. Add one normal local folder, for example `~/ADT_VSCODE_ARC1` on macOS/Linux or `%USERPROFILE%\ADT_VSCODE_ARC1` on Windows, to hold `.github/skills`, `.agents/skills`, Copilot instructions, `system-info.md`, and optional local ABAP mirrors.
+3. Install skills from that local folder:
+
+   ```bash
+   # macOS / Linux
+   mkdir -p ~/ADT_VSCODE_ARC1
+   cd ~/ADT_VSCODE_ARC1
+   npx skills add arc-mcp/arc-1 --agent github-copilot
+   ```
+
+   ```powershell
+   # Windows PowerShell
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\ADT_VSCODE_ARC1"
+   Set-Location "$env:USERPROFILE\ADT_VSCODE_ARC1"
+   npx skills add arc-mcp/arc-1 --agent github-copilot
+   ```
+
+4. Configure ARC-1 in `.vscode/mcp.json` if you want to use these skills as written. SAP's bundled ADT MCP server is useful too, but its tool names differ, so ARC-1-specific skill steps may need adaptation unless ARC-1 is also enabled.
+
+Full setup is in the published [VS Code Skills guide](https://docs.arc-1-mcp.com/skills/#github-copilot-in-vs-code-with-sap-adt).
 
 ## Prerequisites
 
