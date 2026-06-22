@@ -68,6 +68,87 @@ function normalizeTransportOverride(rawTransport: unknown): string | undefined {
   return value || undefined;
 }
 
+const KTD_REF_OBJECT_TYPES_ROUTABLE_BY_ARC = new Set([
+  'BDEF/BAC',
+  'BDEF/BAE',
+  'BDEF/BAF',
+  'BDEF/BAS',
+  'BDEF/BDE',
+  'BDEF/BDO',
+  'BDEF/BSO',
+  'BDEF/BVA',
+  'DDLS/DF',
+  'DEVC/K',
+  'SRVB/SVB',
+  'SRVD/SRV',
+]);
+
+// Live WBOBJTYPES_SCOPE registry entries for SCOPE_ID = 'DOCUMENTATION' observed on
+// SAP_BASIS 758 and 816. This is diagnostic evidence, not a create allowlist:
+// KTD create still needs a verified ADT parent URI route for <sktd:refObject>.
+const KTD_REF_OBJECT_TYPES_SAP_DOCUMENTATION_SCOPE = new Set([
+  ...KTD_REF_OBJECT_TYPES_ROUTABLE_BY_ARC,
+  'APIC/TYP',
+  'CFDB/CFB',
+  'CFDG/CFG',
+  'CFDS/CFS',
+  'CHKO/TYP',
+  'DDLA/ADF',
+  'DRTY/STY',
+  'DSFD/SCF',
+  'EEEC/EVC',
+  'EVTB/EVB',
+  'PARA/R',
+  'RONT/ROT',
+  'SMBC/TYP',
+  'SOD1',
+  'SOD2',
+]);
+
+const KTD_REF_OBJECT_TYPES_HINT = 'DDLS/DF, BDEF/BDO, SRVD/SRV, SRVB/SVB, DEVC/K';
+const KTD_SAP_DOCUMENTATION_SCOPE_HINT =
+  'APIC/TYP, BDEF/*, CFDB/CFB, CFDG/CFG, CFDS/CFS, CHKO/TYP, DDLA/ADF, DDLS/DF, DEVC/K, ' +
+  'DRTY/STY, DSFD/SCF, EEEC/EVC, EVTB/EVB, PARA/R, RONT/ROT, SMBC/TYP, SOD1, SOD2, ' +
+  'SRVB/SVB, SRVD/SRV';
+
+function normalizeKtdRefObjectType(refObjectType: string): string {
+  return refObjectType.trim().toUpperCase();
+}
+
+function validateKtdRefObjectType(refObjectType: string): string | undefined {
+  const normalized = normalizeKtdRefObjectType(refObjectType);
+  if (KTD_REF_OBJECT_TYPES_ROUTABLE_BY_ARC.has(normalized)) {
+    return undefined;
+  }
+  if (KTD_REF_OBJECT_TYPES_SAP_DOCUMENTATION_SCOPE.has(normalized)) {
+    return (
+      `SKTD/KTD create recognizes refObjectType "${normalized}" as observed SAP-registered for KTD DOCUMENTATION scope on SAP_BASIS 758/816, ` +
+      `but ARC-1 does not yet have verified ADT parent URI routing for this type. ` +
+      `ARC-1 only creates KTDs when it can build both the SAP refObjectType and the parent adtcore:uri. ` +
+      `ARC-1 currently supports KTD creation for: ${KTD_REF_OBJECT_TYPES_HINT}. ` +
+      `Other SAP-registered KTD parent types verified from WBOBJTYPES_SCOPE: ${KTD_SAP_DOCUMENTATION_SCOPE_HINT}.`
+    );
+  }
+  const codeDocumentationHint =
+    normalized === 'CLAS/OC' || normalized === 'INTF/OI' || normalized === 'PROG/P'
+      ? '\n\nUse ABAP Doc for classes, interfaces, and programs. These object types were not registered for KTD DOCUMENTATION scope on the tested SAP_BASIS 758 and 816 systems; SAP documentation positions ABAP Doc as the source-code documentation mechanism for classes and interfaces.'
+      : '';
+  return (
+    `SKTD/KTD create will not attempt unverified refObjectType "${normalized}". ` +
+    `KTD creation requires both a SAP Workbench DOCUMENTATION scope handler for the parent object type and an exact ADT parent object URI; ` +
+    `posting unknown parent types can trigger a SAP short dump in CL_KTD_UTILITY=>GET_DOCU_STRUCTURE before SAP returns a normal validation error. ` +
+    `ARC-1 currently supports KTD creation for: ${KTD_REF_OBJECT_TYPES_HINT}.` +
+    codeDocumentationHint
+  );
+}
+
+function isKtdCreateEndpointUnavailable(err: unknown): err is AdtApiError {
+  if (!(err instanceof AdtApiError)) return false;
+  if (err.statusCode !== 404 || err.path !== '/sap/bc/adt/documentation/ktd/documents') return false;
+  const combined = `${err.message}\n${err.responseBody ?? ''}`.toLowerCase();
+  return combined.includes('resource') && combined.includes('/sap/bc/adt/documentation/ktd/documents');
+}
+
 export async function writeActionCreate(ctx: SapWriteContext): Promise<ToolResult> {
   const {
     client,
@@ -164,14 +245,16 @@ export async function writeActionCreate(ctx: SapWriteContext): Promise<ToolResul
   }
 
   if (type === 'SKTD') {
-    // A KTD is not a standalone object — it documents a parent object (e.g., a DDLS view or a CLAS).
+    // A KTD is not a standalone object — it documents a parent object with a WB DOCUMENTATION handler.
     // The create POST goes to the collection URL with a sktd:docu XML body that references the parent.
-    const refType = String(args.refObjectType ?? '');
+    const refType = normalizeKtdRefObjectType(String(args.refObjectType ?? ''));
     if (!refType) {
       return errorResult(
-        '"refObjectType" is required for SKTD create — the ADT type+subtype of the parent object being documented (e.g., "DDLS/DF", "CLAS/OC", "PROG/P", "INTF/OI", "BDEF/BDO", "SRVD/SRV").',
+        `"refObjectType" is required for SKTD/KTD create — the ADT type+subtype of the parent object being documented (for example: ${KTD_REF_OBJECT_TYPES_HINT}).`,
       );
     }
+    const refTypeError = validateKtdRefObjectType(refType);
+    if (refTypeError) return errorResult(refTypeError);
     const refName = String(args.refObjectName ?? name);
     // SAP rule: a KTD's own name must equal the parent object's name (one KTD per object).
     // Creating a KTD named differently from its parent fails server-side with a cryptic
@@ -194,16 +277,28 @@ export async function writeActionCreate(ctx: SapWriteContext): Promise<ToolResul
 </sktd:docu>`;
 
     const ktdCreateUrl = '/sap/bc/adt/documentation/ktd/documents';
-    const ktdResult = await createObject(
-      client.http,
-      client.safety,
-      ktdCreateUrl,
-      ktdBody,
-      SKTD_V2_CONTENT_TYPE,
-      effectiveTransport,
-      undefined,
-      cachedFeatures?.abapRelease,
-    );
+    let ktdResult: string;
+    try {
+      ktdResult = await createObject(
+        client.http,
+        client.safety,
+        ktdCreateUrl,
+        ktdBody,
+        SKTD_V2_CONTENT_TYPE,
+        effectiveTransport,
+        undefined,
+        cachedFeatures?.abapRelease,
+      );
+    } catch (err) {
+      if (isKtdCreateEndpointUnavailable(err)) {
+        return errorResult(
+          `SKTD/KTD create endpoint is not available on this SAP system: ${ktdCreateUrl} returned 404. ` +
+            `KTD creation requires SAP_BASIS 7.55+ with the ADT Knowledge Transfer Document service active. ` +
+            `ARC-1 did not create "${name}". On older systems, use the documentation mechanism supported by that release or connect to a KTD-capable backend.`,
+        );
+      }
+      throw err;
+    }
 
     // If initial Markdown was provided, follow up with an update PUT to write it.
     // Same envelope contract as the update path: fetch-then-rewrite ensures we
