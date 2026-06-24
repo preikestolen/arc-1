@@ -673,8 +673,8 @@ export async function handleSAPRead(
     case 'BSP': {
       if (cachedFeatures?.ui5 && !cachedFeatures.ui5.available) {
         return errorResult(
-          'UI5/Fiori BSP Filestore is not available on this SAP system. ' +
-            'Run SAPManage(action="probe") to verify feature availability.',
+          'UI5/Fiori BSP Filestore is not available on this SAP system. Run SAPManage(action="probe") ' +
+            'for the reason (often a missing S_ADT_RES authorization), or set SAP_FEATURE_UI5=on to force it on.',
         );
       }
       const include = args.include as string | undefined;
@@ -696,8 +696,8 @@ export async function handleSAPRead(
     case 'BSP_DEPLOY': {
       if (cachedFeatures?.ui5repo && !cachedFeatures.ui5repo.available) {
         return errorResult(
-          'ABAP Repository OData Service is not available on this SAP system. ' +
-            'Run SAPManage(action="probe") to verify feature availability.',
+          'ABAP Repository OData Service is not available on this SAP system. Run SAPManage(action="probe") ' +
+            'for the reason, or set SAP_FEATURE_UI5REPO=on to force it on.',
         );
       }
       if (!name) {

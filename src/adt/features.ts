@@ -39,7 +39,8 @@ const PROBES: FeatureProbe[] = [
   { id: 'gcts', endpoint: '/sap/bc/cts_abapvcs/system', description: 'gCTS (git-enabled CTS)' },
   { id: 'rap', endpoint: '/sap/bc/adt/ddic/ddl/sources', description: 'RAP/CDS development' },
   { id: 'amdp', endpoint: '/sap/bc/adt/debugger/amdp', description: 'AMDP debugging' },
-  { id: 'ui5', endpoint: '/sap/bc/adt/filestore/ui5-bsp', description: 'UI5/Fiori BSP' },
+  // Probe /objects, not the bare node — the bare /…/ui5-bsp path has no handler → 404 → false-disables BSP.
+  { id: 'ui5', endpoint: '/sap/bc/adt/filestore/ui5-bsp/objects', description: 'UI5/Fiori BSP' },
   { id: 'transport', endpoint: '/sap/bc/adt/cts/transportrequests', description: 'CTS transport management' },
   { id: 'ui5repo', endpoint: '/sap/opu/odata/UI5/ABAP_REPOSITORY_SRV', description: 'UI5 ABAP Repository Deploy' },
   {
