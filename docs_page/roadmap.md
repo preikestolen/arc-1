@@ -1,6 +1,6 @@
 # ARC-1 Roadmap
 
-**Last Updated:** 2026-05-29 (SAPRead `grep` — case-insensitive regex returning only matching source lines + context with line numbers, method-annotated for classes, literal fallback; token-efficient search over source-bearing types, complements #307 class-section surgery; issue #313). Earlier: ARC-1-native pre-write hint `arc1-tabl-draft-admin-include` — non-blocking warning when a TABL source uses bare `include sych_bdl_draft_admin_inc` instead of the SAP-canonical `"%admin"` named-include prefix; closes Run 6 micro-improvement #5 from the SEGW→RAP migration skill iteration log; earlier same day: SAPSearch tadir_lookup `source` modes for TADIR ghost detection + SAPWrite batch_create `activateAtEnd` for composition-linked DDLS / interdependent RAP graphs; earlier same day: RAP handler skeleton CCIMP-only fix)
+**Last Updated:** 2026-06-25 (**shipped the 2026-06-24 deep-scan gaps** — 8 PRs, each live-verified on a4h 758 (S/4HANA 2023) AND a4h-2025 816 (ABAP Platform 2025): **FEAT-63** pre-release inactive-objects check + **COMPAT-05** K/W/T fix [PR #501], **FEAT-64** unknown-column hint [PR #502], **FEAT-41** AUnit coverage [PR #503], **FEAT-65** TTYP read+create [PR #504], **FUGR structural-include write** (FEAT-18 sibling) [PR #505], **CDS API-release write** (FEAT-02 follow-up) `SAPManage set_api_state` [PR #506], **RAP behavior-extension create** (`extend behavior for`) [PR #507]. **SEC-14** implemented then DEFERRED [PR #500] (mandatory HTTP auth is the primary control). **FEAT-62** (TRAN write) confirmed a **HARD BLOCKER** — `/aps/iam/tran` absent on all three test systems. Earlier 2026-06-24 (competitor deep-scan: fr0ster v7.2.1 + sapcli + dassian-adt — new **SEC-14** (DNS-rebinding/Host-header), **FEAT-63** (pre-release inactive-objects check), **FEAT-64** (unknown-column self-correcting hint), **FEAT-65** (TTYP), **COMPAT-05** (verify ToC type-T creation); flagged CDS API-release-**write** as a dual-signal gap; reinforced FEAT-41/FEAT-62 with sapcli reference impls; see [`compare/`](../compare/)). Earlier 2026-05-29 (SAPRead `grep` — case-insensitive regex returning only matching source lines + context with line numbers, method-annotated for classes, literal fallback; token-efficient search over source-bearing types, complements #307 class-section surgery; issue #313). Earlier: ARC-1-native pre-write hint `arc1-tabl-draft-admin-include` — non-blocking warning when a TABL source uses bare `include sych_bdl_draft_admin_inc` instead of the SAP-canonical `"%admin"` named-include prefix; closes Run 6 micro-improvement #5 from the SEGW→RAP migration skill iteration log; earlier same day: SAPSearch tadir_lookup `source` modes for TADIR ghost detection + SAPWrite batch_create `activateAtEnd` for composition-linked DDLS / interdependent RAP graphs; earlier same day: RAP handler skeleton CCIMP-only fix)
 **Project:** ARC-1 (ABAP Relay Connector) — MCP Server for SAP ABAP Systems
 **Repository:** https://github.com/arc-mcp/arc-1
 
@@ -58,7 +58,9 @@ SORT RULES for this table — DO NOT BREAK when adding rows:
 | [BUG-01](#bug-01) | SAPActivate phantom success + CLI/server alignment (NW 7.50) — PR [#179](https://github.com/arc-mcp/arc-1/pull/179) open | P0 | S | Bugs |
 | [ARCH-01](#arch-01) | Discovery-driven endpoint routing — replaces hard-coded per-type URLs with ordered candidate-list against `/sap/bc/adt/discovery` (TABL already does this via `resolveTablObjectUrl`; extend to DOMA, DDLX, BDEF, SRVD, SRVB, ENHO). Plan: [docs/plans/discovery-driven-endpoint-routing.md](../docs/plans/discovery-driven-endpoint-routing.md) | P1 | M | Architecture |
 | [PR-ε](#pr-epsilon) | Remove static SAP_BASIS release gates and `isRelease750()` helper after ARCH-01 lands; consume `resolveSourceUrl` + `filterByDiscovery` at the call sites that are still hard-coded | P1 | S | Architecture |
-| [FEAT-18](#feat-18) | Function Group Bulk Fetch | P1 | S | Features |
+| [FEAT-18](#feat-18) | Function Group Bulk Fetch (read) — still open; its **sibling, FUGR structural-include WRITE, ✅ shipped 2026-06-25 (PR #505)** (`SAPWrite update type=INCL`+`group`, live-verified 758 + 816) | P1 | S | Features |
+| — | **RAP behavior-extension create** (`extend behavior for`) — ✅ **shipped 2026-06-25 (PR #507)**: `SAPWrite create type=BDEF` with extension source emits the `adtTemplate(base_bdef)`; live-verified 758 + 816 (new capability, no prior FEAT id) | P2 | M | Features |
+| — | **CDS API-release WRITE** (`SAPManage set_api_state`, FEAT-02 follow-up) — ✅ **shipped 2026-06-25 (PR #506)**: release/revoke a C1 contract; live-verified 758 + 816 | P2 | S | Features |
 | [FEAT-24](#feat-24) | CompareSource (Diff) | P1 ↑ (from P2, 2026-04-23 — last piece of code-review workflow trio with FEAT-20 + FEAT-49) | S | Features |
 | [DOC-01](#doc-01) | Copilot Studio Setup Guide | P1 | S | Docs |
 | [DOC-02](#doc-02) | Basis Admin Security Guide | P1 | S | Docs |
@@ -72,20 +74,25 @@ SORT RULES for this table — DO NOT BREAK when adding rows:
 | [FEAT-31](#feat-31) | Code Coverage from Unit Tests | P2 | S | Features |
 | [FEAT-32](#feat-32) | Table Pagination / Offset | P2 | XS | Features |
 | [FEAT-36](#feat-36) | Type Information (SAPNavigate) | P2 | S | Features |
-| [FEAT-41](#feat-41) | ABAP Unit Test Coverage (statement-level) | P2 | S | Features |
+| ~~[FEAT-41](#feat-41)~~ | ~~ABAP Unit Test Coverage (statement-level)~~ — **✅ Completed 2026-06-25 (PR #503)**: statement/branch/procedure coverage, live-verified 758 + 816 | P2 | S | Features |
 | [FEAT-42](#feat-42) | ATC Output Formats (JUnit4, checkstyle, codeclimate) | P2 | XS | Features |
 | [FEAT-06](#feat-06) | Cloud Readiness Assessment | P2 | M | Features |
 | [FEAT-03](#feat-03) | Enhancement Framework (BAdI) | P2 | M | Features |
 | [FEAT-30](#feat-30) | ABAP Cleaner Integration | P2 | M | Features |
 | [FEAT-34](#feat-34) | i18n Translation Management | P2 | M | Features |
 | [FEAT-60](#feat-60) | CLI/server alignment (shortcut parity with MCP tool schemas) | P2 | S | Features |
-| [FEAT-62](#feat-62) | ADT Transaction (`TRAN/T`) source/write support | P2 | M | Features |
+| [FEAT-62](#feat-62) | ADT Transaction (`TRAN/T`) source/write support — **⛔ HARD BLOCKER (2026-06-25):** `/sap/bc/adt/aps/iam/tran` 404s on 758 + 816 and is absent from discovery on all three test systems; no backend to build/verify against. Stays tracked. | P2 | M | Features |
+| ~~[FEAT-63](#feat-63)~~ | ~~Pre-release inactive-objects check in SAPTransport `release`/`release_recursive`~~ — **✅ Completed 2026-06-25 (PR #501)**, live-verified 758 + 816 | P2 | S | Features |
+| ~~[FEAT-64](#feat-64)~~ | ~~Self-correcting "unknown column" hint on SAPQuery / TABLE_QUERY~~ — **✅ Completed 2026-06-25 (PR #502)**, live-verified 758 + 816 | P2 | S | Features |
+| ~~COMPAT-05~~ | ~~Verify ToC (type `T`) creation~~ — **✅ Resolved 2026-06-25 (PR #501):** the create path is K-only by design; the misleading K/W/T advertise-text was corrected | P2 | XS | Compatibility |
 | [SEC-05](#sec-05) | Rate Limiting | P2 | S | Security |
+| [SEC-14](#sec-14) | DNS-rebinding / Host-header allowlist for HTTP/SSE transport (`ARC1_ALLOWED_HOSTS`) — defense-in-depth for self-hosted/localhost; BTP gorouter already controls `Host`. fr0ster v7.2.0 + MCP spec. **Implemented then DEFERRED** (PR #500) — mandatory HTTP auth is the primary control; see [details](#sec-14) | P2 | S | Security |
 | [OPS-02](#ops-02) | Health Check Enhancements | P2 | XS | Ops |
 | [DOC-03](#doc-03) | SAP Community Blog Post | P2 | S | Docs |
 | [COMPAT-04](#compat-04) | BTP transport omission in safeUpdateSource() — verify only | P2 | XS | Compatibility |
 | [FEAT-05](#feat-05) | Code Refactoring (Rename, Extract) | P3 | L | Features |
 | [FEAT-07](#feat-07) | TLS/HTTPS for HTTP Streamable | P3 | S | Features |
+| ~~[FEAT-65](#feat-65)~~ | ~~TTYP (Table Type) read/write~~ — **✅ Completed 2026-06-25 (PR #504)**: read + create (built-in & structure rows; POST shell → follow-up PUT sets the real row type), live-verified 758 + 816 | P3 | M | Features |
 | [FEAT-29](#feat-29) | P3 Backlog (14 items) | P3 | various | Features |
 | [FEAT-50](#feat-50) | ADT Probe Fixture Coverage (contributed fixtures) | P3 | XS-each | Diagnostics |
 | [FEAT-59](#feat-59) | Embeddable multi-tenant server (per-instance `systemType`) | P3 | M | Features |
@@ -312,12 +319,13 @@ These bugs affect real-world deployments and were confirmed by cross-project com
 20. ~~**FEAT-46** SRVB (Service Binding) Create (S)~~ — **completed 2026-04-14** (SAPWrite now supports SRVB create/update/delete + batch_create; create guidance points to activate + publish flow).
 21. ~~**FEAT-47** MSAG (Message Class) Read/Write (S)~~ — **completed 2026-04-14** (SAPRead type=MSAG + SAPWrite/SAPManage MSAG create/update/delete)
 22. ~~**FEAT-39** Transport Enhancements (S)~~ — **completed 2026-04-13** (K/W/T types; S/R deferred). sapcli has full CTS lifecycle.
-21. **FEAT-41** ABAP Unit Test Coverage (S) — statement-level coverage via `/runtime/traces/coverage/measurements/{id}` with paginated follow-up. sapcli + AWS Accelerator have this.
+21. **FEAT-41** ABAP Unit Test Coverage (S) — statement-level coverage via `/runtime/traces/coverage/measurements/{id}` with paginated follow-up. sapcli + AWS Accelerator have this; sapcli now prints **branch + procedure** coverage (`942d70b`, 2026-04-24) — concrete reference impl. ARC-1 still hardcodes `coverage active="false"` (`devtools.ts:554`).
 22. **FEAT-42** ATC Output Formats (XS) — JUnit4, checkstyle, codeclimate formatters for CI/CD integration. sapcli has these.
 23. ~~**FEAT-43** DDIC Auth & Misc Read (S)~~ — **completed 2026-04-17** (SAPRead types `AUTH`, `FEATURE_TOGGLE` (formerly `FTG2`, renamed in audit Plan B / PR #224), `ENHO`; Authorization Fields endpoint: `/sap/bc/adt/aps/iam/auth/{name}`, namespace `http://www.sap.com/iam/auth`)
 24. ~~**FEAT-48** SKTD (Knowledge Transfer Documents) Read/Write (S)~~ — **✅ Completed 2026-04-16** (PR #134 merged). Unique to ARC-1. LLM-generated documentation for ABAP objects.
 25. **FEAT-09** SQL Trace Monitoring (S) — completes diagnostics story (SM02 and /IWFND/ERROR_LOG already completed 2026-04-21 via FEAT-55 — SQL trace is the only fr0ster-v5 diagnostic still missing)
 26. **SEC-05** Rate Limiting (S) — prevent runaway AI loops
+26b. ~~**SEC-14** DNS-rebinding / Host-header validation (S)~~ — **implemented then DEFERRED 2026-06-25** (PR #500, closed-deferred). Mandatory HTTP auth is the primary rebind control; Host validation only matters in the no-auth mode a real deploy shouldn't use, so it's parked to avoid the `ARC1_ALLOWED_HOSTS` setup surface. Decision record + resume guide: [docs/plans/sec-14-dns-rebinding-host-validation.md](../docs/plans/sec-14-dns-rebinding-host-validation.md).
 26. ~~**FEAT-20** Source Version / Revision History (S) — promoted to P1/Phase B and completed 2026-04-17~~
 27. **FEAT-31** Code Coverage from Unit Tests (S) — VSP has this (Apr 4). See also FEAT-41 for sapcli's approach.
 28. ~~**FEAT-33** CDS Impact Analysis (S)~~ — **completed 2026-04-16** (`SAPContext(action="impact")` for DDLS upstream+downstream analysis)
@@ -379,6 +387,8 @@ SAP confirmed GA of ABAP Cloud Extension for VS Code with built-in agentic AI po
 **Why:** Every S/4HANA Cloud / BTP ABAP customer needs to check if their code uses only released APIs. This is a "must have" for any AI copilot helping with ABAP Cloud development.
 
 **Implementation (2026-04-10):** Added `API_STATE` type to `SAPRead`. Uses ADT endpoint `/sap/bc/adt/apireleases/{encoded-uri}` with `Accept: application/vnd.sap.adt.apirelease.v10+xml`. Returns structured JSON with contract-level states (C0-C4), successor info, and catalog metadata. Based on VSP's corrected implementation (commit 8a478aa).
+
+**Follow-up — API-release WRITE: ✅ SHIPPED 2026-06-25 (PR #506).** `SAPManage action=set_api_state` releases/revokes an object's C1 contract for ABAP Cloud / Clean Core. The PUT is a narrow **v10** GET→PUT transform (drops response-only nodes `atom:link`/`stateTransitions`/`transportObject`/`authValueObject`; keeps `status` + successor scaffold + `apiCatalogData/ApiCatalogs`; ≥1 visibility required, derived from the contract's behaviour defaults). Fail-closed package gate via the object's real package; idempotent no-op handling. Live-verified on 758 + 816. (Originally flagged 2026-06-24 as a dual-signal gap — both sapcli `874c3b3` `ddl apistate set` and vibing-steampunk set the release contract.)
 
 ---
 
@@ -609,6 +619,76 @@ SAP confirmed GA of ABAP Cloud Extension for VS Code with built-in agentic AI po
 **Documentation:** Operator guide at [Rate Limiting Guide](rate-limiting.md). Design rationale: [ADR-0004](../docs/adr/0004-layered-rate-limiting.md).
 
 **CodeQL alert linkage:** Alert #12 (`js/missing-rate-limiting`) on `/authorize` auto-closes on the next scan now that Layer 1 is mounted before the OAuth router.
+
+---
+
+<a id="sec-14"></a>
+### SEC-14: DNS-Rebinding / Host-Header Validation (HTTP/SSE)
+| Field | Value |
+|-------|-------|
+| **Priority** | P2 |
+| **Effort** | S (≤1 day) |
+| **Risk** | Low |
+| **Usefulness** | Medium — defense-in-depth for self-hosted / localhost HTTP deployments; the MCP spec recommends it. On BTP CF the gorouter already fixes the `Host`, so the live exposure is the stdio→HTTP-bridge and bare-`localhost` cases. |
+| **Status** | **Implemented, then DEFERRED (2026-06-25)** — built + hardened + live-verified on branch `feat/sec-14-dns-rebinding` (PR #500, closed-deferred); parked by product decision. Decision record + resume guide: [docs/plans/sec-14-dns-rebinding-host-validation.md](../docs/plans/sec-14-dns-rebinding-host-validation.md). |
+| **Source** | [fr0ster v7.2.0 `d1688c9`](../compare/05-fr0ster-mcp-abap-adt.md); threat A4 in [docs/security-model.md](../docs/security-model.md) |
+
+> **Deferred — why:** ARC-1's HTTP transport already *requires* MCP auth to start (`ARC1_API_KEYS` / OIDC / XSUAA, unless `allowHttpNoAuth` is explicitly set), which is the primary DNS-rebind control — a rebind attacker is rejected `401` before any tool call. Host validation is only load-bearing in the no-auth HTTP mode a real deploy should never use; everywhere else (stdio = no HTTP; BTP = gorouter + XSUAA; self-hosted = mandatory auth) it's redundant. The real cost is operator setup surface (`ARC1_ALLOWED_HOSTS`), so we keep it out to make deployment simpler. Resume by reopening PR #500 if a no-auth HTTP mode ever becomes a real deployment.
+
+**What:** Validate the `Host` header on every HTTP/SSE request against an allowlist before the `/mcp` handler runs. A malicious web page can rebind its DNS to `127.0.0.1` and POST to a local MCP server from the victim's browser; `Origin`/CORS checks don't stop a same-origin-looking `Host`. fr0ster shipped a Host/Origin allowlist in v7.2.0; the MCP spec calls for the same.
+
+**Why ARC-1 doesn't have it yet:** ARC-1 validates `Origin` (CORS, `ARC1_ALLOWED_ORIGINS`, off by default) and OAuth redirect/issuer hosts, but never the `Host` header (`src/server/http.ts`). The bundled MCP SDK (1.29.0) *does* expose `enableDnsRebindingProtection`/`allowedHosts`/`allowedOrigins`, but marks all three **`@deprecated`** ("use external middleware for host validation instead" — verified in `webStandardStreamableHttp.d.ts:82-96`), so a hand-rolled Express middleware is the correct path, not the SDK flag (fr0ster v7.2.0 reached the same conclusion).
+
+**Implementation sketch:** Middleware in `applySecurityMiddleware` (before `/mcp`) gated by `ARC1_ALLOWED_HOSTS`. Default empty = **auto-protect loopback binds only** (derive a `localhost`/`127.0.0.1`/`[::1]` allowlist from the bind addr) — the exact DNS-rebinding target; non-loopback binds (`0.0.0.0`, proxy/BTP where the gorouter controls `Host`) stay **off** unless configured; `*` disables. Add the env to `src/server/{config,types}.ts`, emit a `host_rejected` audit event (`level:'warn'`, mirroring `cors_rejected`), and register A4 as a controlled risk in `docs/security-model.md`. Full plan: [docs/plans/sec-14-dns-rebinding-host-validation.md](../docs/plans/sec-14-dns-rebinding-host-validation.md).
+
+---
+
+<a id="feat-63"></a>
+### FEAT-63: Pre-Release Inactive-Objects Check (SAPTransport)
+| Field | Value |
+|-------|-------|
+| **Priority** | P2 |
+| **Effort** | S (≤1 day) |
+| **Risk** | Low |
+| **Usefulness** | High — releasing a transport that still contains inactive objects fails SAP-side with a cryptic error; catching it client-side is a real CI/CD-promotion win. |
+| **Status** | ✅ **Completed 2026-06-25 (PR #501)** — `inactiveObjectsForTransport` + block-before-release; live-verified 758 + 816 |
+| **Source** | [dassian-adt `4cfd841`](../compare/07-dassian-adt.md) |
+
+**What:** Before `SAPTransport action=release` / `release_recursive`, cross-check the transport's object list against the inactive-objects list and warn (or block unless `force`) when there is overlap.
+
+**Why it's cheap:** the primitive already exists — `client.getInactiveObjects()` + `InactiveListCache` (`src/cache/inactive-list-cache.ts`), surfaced today as `SAPRead type=INACTIVE_OBJECTS`. The release path (`src/handlers/transport.ts` `release`/`release_recursive` → `src/adt/transport.ts`) simply never consults it. Wire the check into the release handler and reuse the cached list.
+
+---
+
+<a id="feat-64"></a>
+### FEAT-64: Self-Correcting "Unknown Column" Hint (SAPQuery / Table Preview)
+| Field | Value |
+|-------|-------|
+| **Priority** | P2 |
+| **Effort** | S (1-2 days) |
+| **Risk** | Low |
+| **Usefulness** | High — turns a dead-end "unknown column" error into a one-shot self-correction, the same way ARC-1 already self-corrects unknown *table* names. |
+| **Status** | ✅ **Completed 2026-06-25 (PR #502)** — `extractUnknownColumn`/`formatUnknownColumnHint` (T100 `ADT_DATAPREVIEW_MSG/004`); SAPQuery + TABLE_QUERY; live-verified 758 + 816 |
+| **Source** | [dassian-adt `afc1b66`](../compare/07-dassian-adt.md) |
+
+**What:** When a table/SQL query references a column that doesn't exist, enrich the error with the table's valid column names so the agent retries without a human round-trip.
+
+**Where:** ARC-1 already self-corrects unknown *tables* (`src/handlers/query.ts:180` suggests similar names via search) but not unknown columns. Add column enrichment in the `getTableContents`/`runTableQuery`/`runQuery` catch path (`src/adt/client.ts`) — fetch the table's component list (DD03L / structure read, already available) and append "valid columns: …". Best as a shared helper called from `query.ts`.
+
+---
+
+<a id="feat-65"></a>
+### FEAT-65: TTYP (Table Type) Read/Write
+| Field | Value |
+|-------|-------|
+| **Priority** | P3 |
+| **Effort** | M (3-5 days) |
+| **Risk** | Low |
+| **Usefulness** | Medium — table types are common DDIC objects; ARC-1 has no read or write support at all. Both dassian-adt (`5f691ff`) and sapcli ship create. |
+| **Status** | ✅ **Completed 2026-06-25 (PR #504)** — read + create (built-in & structure rows; POST shell → follow-up PUT sets the real row type); discovery-gated off NW 7.50; live-verified 758 + 816 |
+| **Source** | [dassian-adt `5f691ff`](../compare/07-dassian-adt.md) |
+
+**What:** Read + create/update DDIC Table Types (TTYP). Add `TTYP` rows to both `*_TYPE_TABLE`s in `src/handlers/tool-registry.ts`, a create-XML builder in `src/adt/ddic-xml.ts` (DOMA/DTEL are the templates), and URL routing in `src/handlers/object-types.ts`.
 
 ---
 
@@ -1351,7 +1431,7 @@ For FUGR (function groups), the same pattern applies with `objecttype=FUGR/P` an
 | **Effort** | S (1-2 days) |
 | **Risk** | Low |
 | **Usefulness** | High — enables test-driven ABAP development |
-| **Status** | Not started |
+| **Status** | ✅ **Completed 2026-06-25 (PR #503)** — `SAPDiagnose unittest coverage:true` → statement/branch/procedure %; 2-step ADT flow; live-verified 758 + 816 |
 | **Source** | [sapcli comparison](../compare/09-sapcli.md), sapcli `sap/adt/aunit.py` |
 
 **What:** Fetch statement-level code coverage after running ABAP Unit tests. Uses `POST /sap/bc/adt/runtime/traces/coverage/measurements/{id}` with paginated `rel=next` follow-up for large result sets.
@@ -1925,7 +2005,7 @@ For FUGR (function groups), the same pattern applies with `objecttype=FUGR/P` an
 | **Effort** | M |
 | **Risk** | Medium — transaction lifecycle needs a separate ADT endpoint, JSON source MIME handling, and type-specific create payloads |
 | **Usefulness** | Medium — closes a real ADT parity gap for transaction-code authoring, but endpoint availability is backend-dependent |
-| **Status** | Research complete; not started. See [docs/research/adt-transaction-source-write.md](../docs/research/adt-transaction-source-write.md) |
+| **Status** | ⛔ **HARD BLOCKER (re-confirmed 2026-06-25):** `/sap/bc/adt/aps/iam/tran` returns 404 on a4h 758 + a4h-2025 816 and is absent from discovery on all three test systems (7.50/758/816) — no backend to implement or verify against. Stays tracked pending a system that exposes the endpoint. See [docs/research/adt-transaction-source-write.md](../docs/research/adt-transaction-source-write.md) |
 | **Source** | [`jfilak/sapcli` PR #156](https://github.com/jfilak/sapcli/pull/156), merged 2026-04-28 |
 
 **What:** Add on-prem transaction source/lifecycle support for `TRAN/T` through `/sap/bc/adt/aps/iam/tran`, while preserving existing metadata-only `SAPRead(type="TRAN")` through `/sap/bc/adt/vit/wb/object_type/trant/object_name/{name}`.
@@ -2548,8 +2628,8 @@ The VS Code client-side issue — [microsoft/vscode#314715](https://github.com/m
 | Competitor | Language | Tools | Auth | Safety | Deployment | Key Advantage |
 |-----------|---------|-------|------|--------|------------|---------------|
 | **ARC-1** | TypeScript | 12 intent-based + hyperfocused | API Key, OIDC, XSUAA, PP | Read-only, pkg filter, deny actions, 3-layer auth (server ceiling + user scopes + SAP auth) | Docker, BTP CF, npm | Per-user PP, scope-based tools, 3 auth modes, safety, 1,500+ tests across unit/integration/E2E |
-| **vibing-steampunk** | Go 1.24 | 1-99+ (3 modes) | Basic, Cookie | Op filter, pkg filter, transport guard | Go binary (9 platforms) | 279 stars, **Streamable HTTP (v2.38.0)**, native parser, massive feature sprint (i18n, gCTS, API release state, version history, code coverage) |
-| **fr0ster/mcp-abap-adt** | TypeScript | ~320 (4 tiers) | 9 providers (incl. TLS, SAML, Device Flow) | Exposition tiers | npm `@mcp-abap-adt/core` | Most tools, most auth options, embeddable, RFC, multi-system |
+| **vibing-steampunk** | Go 1.24 | 1-99+ (3 modes) | Basic, Cookie | Op filter, pkg filter, transport guard | Go binary (9 platforms) | 392 stars, **Streamable HTTP (v2.38.0)**, native parser, massive feature sprint (i18n, gCTS, API release state, version history, code coverage) |
+| **fr0ster/mcp-abap-adt** | TypeScript | ~330 (v7.2.1, 63★) | 9+ providers (incl. TLS, SAML, Device Flow, **cert/Kerberos**) | Exposition tiers + **DNS-rebinding (v7.2.0)** | npm `@mcp-abap-adt/core` | Most tools, most auth options, embeddable, RFC, multi-system |
 | SAP ABAP Add-on MCP | ABAP | ~10 | SAP native | SAP authorization | Runs inside SAP | No proxy needed, SAP-native auth |
 | lemaiwo/btp-sap-odata-to-mcp-server | TypeScript | ~10 | XSUAA OAuth proxy | XSUAA roles | BTP CF (MTA) | XSUAA OAuth proxy, principal propagation |
 | dassian-adt / abap-mcpb | JavaScript | 25+ | Basic, Browser login | MCP elicitation | Node.js / MCPB | Error intelligence, batch activation, find_definition, edit_method (Apr sprint) |
@@ -2570,8 +2650,8 @@ The VS Code client-side issue — [microsoft/vscode#314715](https://github.com/m
 12. **RFC 9700 OAuth security** — state + PKCE, loopback binding, audience validation
 
 **Key competitive threats** (tracked in [`compare/`](../compare/)):
-1. **vibing-steampunk** (279 stars) — community favorite. **Major threat escalation (Apr 2026)**: massive sprint added Streamable HTTP, API release state, i18n (7 tools), gCTS (10 tools), version history, code coverage, health analysis, rename preview, dead code analysis, CDS impact, and recovery primitives. ARC-1 has now closed the prioritized gCTS/abapGit gap via FEAT-22, but VSP remains strong on breadth and release velocity.
-2. **fr0ster** (v6.1.0, 100+ releases, 35 stars) — closest enterprise competitor. 9 auth providers, TLS, RFC, embeddable, and broad operational breadth. Watch for convergence on enterprise features.
+1. **vibing-steampunk** (392 stars) — community favorite. **Major threat escalation (Apr 2026)**: massive sprint added Streamable HTTP, API release state, i18n (7 tools), gCTS (10 tools), version history, code coverage, health analysis, rename preview, dead code analysis, CDS impact, and recovery primitives. ARC-1 has now closed the prioritized gCTS/abapGit gap via FEAT-22, but VSP remains strong on breadth and release velocity.
+2. **fr0ster** (v7.2.1, 120+ releases, 63 stars) — closest enterprise competitor; doubled its stars since April. Q2 sprint added SearchSource (package source grep), RuntimeRunClass + profiling, certificate/Kerberos auth, function-group include CRUD, and — notably — **DNS-rebinding protection (v7.2.0)**, the one security control ARC-1 currently lacks (→ **SEC-14**). 9+ auth providers, TLS, RFC, embeddable. Watch for convergence on enterprise **and security** features.
 3. **dassian-adt / abap-mcpb** (33 stars, 53 tools) — fast April sprint added OAuth/XSUAA, multi-system support, more transport tooling, trace flows, and test/include helpers. No safety system is still a major gap, but the pace is notable.
 4. **btp-odata-mcp** (120 stars) — different category (OData) but high adoption. Could expand into ADT territory.
 
