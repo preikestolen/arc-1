@@ -43,6 +43,25 @@ import { UiLogBufferSink } from './ui-log-buffer.js';
 /** ARC-1 version */
 export const VERSION = '0.9.21'; // x-release-please-version
 
+// Soft warning for an unusually large served tools/list. It is re-sent on every conversation (a
+// recurring token + latency cost), and some MCP clients cap tool-list size. CI's
+// check-tool-schema-budget guards the built-in surface, but plugin (Custom_*) tools are added at
+// runtime and invisible to CI — so warn once at serve time if the live list crosses the threshold.
+const TOOLS_LIST_SOFT_WARN_BYTES = 60_000;
+let warnedLargeToolsList = false;
+
+function warnIfToolsListTooLarge(tools: ToolDefinition[]): void {
+  if (warnedLargeToolsList) return;
+  const bytes = Buffer.byteLength(JSON.stringify({ tools }), 'utf8');
+  if (bytes <= TOOLS_LIST_SOFT_WARN_BYTES) return;
+  warnedLargeToolsList = true;
+  logger.warn(
+    'Large tools/list payload — this adds tokens to every request, and some MCP clients cap tool-list size ' +
+      '(tools may then fail to load). Consider ARC1_TOOL_MODE=hyperfocused, or reduce the surface (fewer enabled write/data/SQL/git scopes or plugins).',
+    { bytes, tools: tools.length },
+  );
+}
+
 /**
  * Prune a tool's action OR type enum (or both) based on the user's scopes and
  * the server's denyActions list. Uses ACTION_POLICY as the single source of truth.
@@ -623,6 +642,7 @@ export function createServer(
       }
     }
 
+    warnIfToolsListTooLarge(tools);
     return { tools };
   });
 
