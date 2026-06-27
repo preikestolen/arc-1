@@ -390,6 +390,17 @@ describe('AdtApiError', () => {
       expect(classification?.transaction).toBe('SM12');
     });
 
+    it('classifies the BTP data-preview 400 "No authorization to view data" distinctly (T-2/T-3)', () => {
+      // Live-captured on BTP 919 for both table preview and freestyle SQL on standard tables.
+      const xml = `<exc:exception xmlns:exc="http://www.sap.com/abapxml/types/communicationframework"><type id="ExceptionDataPreviewGeneral"/><message lang="EN">No authorization to view data</message><properties><entry key="T100KEY-ID">ADT_DATAPREVIEW_MSG</entry><entry key="T100KEY-NO">023</entry></properties></exc:exception>`;
+      const classification = classifySapDomainError(400, xml);
+      expect(classification?.category).toBe('data-view-not-authorized');
+      expect(classification?.hint).toMatch(/released CDS view|custom Z\* table/i);
+      // Must NOT be mistaken for a generic lock/auth case.
+      expect(classification?.category).not.toBe('lock-conflict');
+      expect(classification?.category).not.toBe('authorization');
+    });
+
     it('classifies lock conflicts from 403 with "currently editing" (SAP A4H pattern)', () => {
       const xml = `<exc:exception xmlns:exc="http://www.sap.com/abapxml/types/communicationframework">
   <exc:localizedMessage lang="EN">User MARIAN is currently editing ZARC1_TEST_REPORT</exc:localizedMessage>
@@ -416,6 +427,18 @@ describe('AdtApiError', () => {
 </exc:exception>`;
       const classification = classifySapDomainError(409, xml);
       expect(classification?.category).toBe('lock-conflict');
+    });
+
+    it('classifies a create-time structure-package 403 as authorization, NOT a lock (no SM12) — review fix', () => {
+      // Live BTP 919: creating into a structure package → 403 ExceptionResourceNoAccess + PAK/149
+      // "Structure packages cannot contain development objects". Must NOT get the misleading SM12 lock hint.
+      const xml = `<exc:exception xmlns:exc="http://www.sap.com/abapxml/types/communicationframework"><type id="ExceptionResourceNoAccess"/><message lang="EN">Structure packages cannot contain development objects</message></exc:exception>`;
+      const classification = classifySapDomainError(403, xml);
+      expect(classification?.category).toBe('authorization');
+      expect(classification?.category).not.toBe('lock-conflict');
+      // Not the lock path: no SM12 transaction, and the hint is the package/auth guidance.
+      expect(classification?.transaction).not.toBe('SM12');
+      expect(classification?.hint).toMatch(/not a lock|package/i);
     });
 
     it('does not misclassify 403 auth error as lock conflict', () => {

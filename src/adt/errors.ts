@@ -45,7 +45,8 @@ export interface SapErrorClassification {
     | 'icf-handler-not-bound'
     | 'icf-service-inactive'
     | 'bdef-base-not-extensible'
-    | 'include-not-initialized';
+    | 'include-not-initialized'
+    | 'data-view-not-authorized';
   hint: string;
   transaction?: string;
   details?: Record<string, string>;
@@ -564,8 +565,46 @@ export function classifySapDomainError(
     };
   }
 
+  // BTP / ABAP-Cloud data preview + freestyle SQL of SAP standard tables: HTTP 400
+  // ExceptionDataPreviewGeneral "No authorization to view data" (ADT_DATAPREVIEW_MSG/023; the
+  // LONGTEXT cites auth object S_ABPLNGVS — the ABAP language-version gate, not a missing data-read
+  // role). Distinct code path from a package/object 403 (ExceptionResourceNoAccess). Live-verified 919.
+  if (typeId === 'ExceptionDataPreviewGeneral' && /no authorization to view data/i.test(bodyRaw)) {
+    return {
+      category: 'data-view-not-authorized',
+      hint:
+        'On the ABAP Environment (ABAP Cloud), previewing SAP standard-table contents and running ' +
+        'freestyle SQL against standard tables is blocked by the cloud data-access model (authorization ' +
+        'object S_ABPLNGVS) — not a role you can grant. Query a released CDS view instead (SAPQuery ' +
+        'against a C1-released view), or read/preview a custom Z* table you own.',
+      details: typeId ? { exceptionType: typeId } : undefined,
+    };
+  }
+
   const lockPattern =
     /\blocked by\b|\bbeing edited by\b|\bcurrently editing\b|\bresource is locked\b|\balready locked\b/i.test(bodyRaw);
+
+  // A create-time package/authorization denial surfaces as ExceptionResourceNoAccess too (a structure
+  // package, a non-writable package, missing authorization), but it is NOT a lock — never send the user
+  // to SM12 (which doesn't even exist on BTP). crud.ts already produced the actionable 403 message; this
+  // keeps the classifier consistent so no contradictory lock hint is appended. A bare/409
+  // ExceptionResourceNoAccess (no package markers) still classifies as a lock below — ADR-0002.
+  if (
+    typeId === 'ExceptionResourceNoAccess' &&
+    !lockPattern &&
+    /structure package|cannot contain development objects|\bnot authorized\b|person responsible|S_DEVELOP|S_ABPLNGVS/i.test(
+      bodyRaw,
+    )
+  ) {
+    return {
+      category: 'authorization',
+      hint:
+        'This is a package or authorization denial on create — not a lock, so SM12 does not apply. ' +
+        'Target a writable, regular (non-structure) package you are authorized to develop in.',
+      details: { exceptionType: typeId },
+    };
+  }
+
   if (
     typeId === 'ExceptionResourceLockedByAnotherUser' ||
     typeId === 'ExceptionResourceNoAccess' ||

@@ -26,9 +26,13 @@
 import { config } from 'dotenv';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { AdtClient } from '../../src/adt/client.js';
+import { createObject, deleteObject, lockObject, unlockObject, updateSource } from '../../src/adt/crud.js';
+import { activate } from '../../src/adt/devtools.js';
 import { createBearerTokenProvider, loadServiceKeyFile } from '../../src/adt/oauth.js';
 import { unrestrictedSafetyConfig } from '../../src/adt/safety.js';
+import { buildCreateXml, createContentTypeForType } from '../../src/handlers/write-helpers.js';
 import { expectSapFailureClass } from '../helpers/expected-error.js';
+import { generateUniqueName } from './crud-harness.js';
 import { hasBtpCredentials } from './helpers.js';
 
 // Load .env before anything else
@@ -38,7 +42,11 @@ config();
 function getBtpTestClient(): AdtClient {
   const keyFile = process.env.TEST_BTP_SERVICE_KEY_FILE || process.env.SAP_BTP_SERVICE_KEY_FILE || '';
   const serviceKey = loadServiceKeyFile(keyFile);
-  const bearerTokenProvider = createBearerTokenProvider(serviceKey);
+  // A pre-acquired dev JWT (TEST_BTP_ACCESS_TOKEN) skips the interactive browser login — required for
+  // the write tests, which need a named-user token (client_credentials is rejected by ADT), and lets
+  // these run headless once a token is cached.
+  const presetToken = process.env.TEST_BTP_ACCESS_TOKEN;
+  const bearerTokenProvider = presetToken ? async () => presetToken : createBearerTokenProvider(serviceKey);
 
   return new AdtClient({
     baseUrl: serviceKey.url,
@@ -184,9 +192,42 @@ describeIf('BTP ABAP Environment Integration Tests', () => {
   // ─── BTP-Specific: Restricted ABAP ────────────────────────────
 
   describe('BTP restricted ABAP behavior', () => {
-    it('classic programs like RSHOWTIM are NOT available', async () => {
-      // BTP ABAP doesn't have classic SE38 programs
-      await expect(client.getProgram('RSHOWTIM')).rejects.toThrow(/403|404|not found|not available|not released/i);
+    it('classic PROG is READABLE, but creating a classic program is refused (T-1)', async () => {
+      // READ: standard classic reports ARE fully readable on the ABAP Environment (live-verified —
+      // RSHOWTIM returns its REPORT source). The earlier "NOT available" assertion was wrong.
+      const prog = await client.getProgram('RSHOWTIM');
+      expect(prog.source).toMatch(/\bREPORT\b|\bMESSAGE\b/i);
+
+      // WRITE: classic executable programs (PROG) are not part of ABAP Cloud — creation is refused.
+      // Needs a writable package to isolate the program-type refusal from the package-allowlist gate.
+      const pkg = process.env.TEST_BTP_PACKAGE;
+      if (pkg) {
+        const name = 'ZARC1_SMOKE_PROG';
+        const body = buildCreateXml(
+          'PROG',
+          name,
+          pkg,
+          'arc1 prog',
+          undefined,
+          'EN',
+          await client.getEffectiveUser(),
+          true,
+        );
+        await expect(
+          createObject(
+            client.http,
+            client.safety,
+            '/sap/bc/adt/programs/programs',
+            body,
+            createContentTypeForType('PROG'),
+            undefined,
+            undefined,
+            '919',
+            'btp',
+            name,
+          ),
+        ).rejects.toThrow();
+      }
     });
 
     it('classic function modules may not be available', async () => {
@@ -197,28 +238,23 @@ describeIf('BTP ABAP Environment Integration Tests', () => {
       expect(results).toBeInstanceOf(Array);
     });
 
-    it('table preview may be restricted on BTP', async () => {
-      // T000 table preview requires specific authorization on BTP
-      try {
-        const result = await client.getTableContents('T000', 5);
-        // If it works, verify structure
-        expect(result.columns).toContain('MANDT');
-      } catch (err) {
-        // Expected on BTP: table preview is often restricted
-        expectSapFailureClass(err, [403, 500], [/restricted/i, /not authorized/i]);
-      }
+    it('standard-table preview is blocked with the BTP data-view 400 (T-2)', async () => {
+      // BTP returns HTTP 400 ExceptionDataPreviewGeneral "No authorization to view data"
+      // (ADT_DATAPREVIEW_MSG/023; auth object S_ABPLNGVS) — NOT a 403/500. Live-verified 919.
+      const err = await client.getTableContents('T000', 5).then(
+        () => null,
+        (e) => e,
+      );
+      expectSapFailureClass(err, [400], [/No authorization to view data/i]);
     });
 
-    it('free SQL query is likely blocked on BTP', async () => {
-      try {
-        const result = await client.runQuery('SELECT * FROM T000', 5);
-        // If it works, verify result shape
-        expect(result).toBeTruthy();
-        expect(typeof result).toBe('string');
-      } catch (err) {
-        // Expected: BTP blocks free SQL execution
-        expectSapFailureClass(err, [403, 500], [/blocked/i, /not authorized/i, /restricted/i]);
-      }
+    it('freestyle SQL on standard tables is blocked with the BTP data-view 400 (T-3)', async () => {
+      // Same cloud data-access gate as table preview — 400, not the 403/500 the old test expected.
+      const err = await client.runQuery('SELECT * FROM T000', 5).then(
+        () => null,
+        (e) => e,
+      );
+      expectSapFailureClass(err, [400], [/No authorization to view data/i]);
     });
   });
 
@@ -318,5 +354,214 @@ describeIf('BTP ABAP Environment Integration Tests', () => {
       const results = await client.searchObject('*', 3);
       expect(results.length).toBeGreaterThan(0);
     });
+  });
+
+  // ─── BTP-Specific: object-create path (G-2..G-5) ──────────────
+  //
+  // The cloud create body differs from on-prem (no adtcore:responsible, no masterSystem,
+  // abapLanguageVersion="cloudDevelopment", explicit CLAS attributes). These tests assert the
+  // body is accepted by SAP's create simple-transformation and that the owner is taken from the JWT.
+
+  describe('BTP object-create path', () => {
+    it('surfaces the ABAP user from the JWT, not an empty string (G-5)', async () => {
+      // On-prem this is SAP_USER; on BTP there is none, so it comes from the JWT user_name claim.
+      const user = await client.getEffectiveUser();
+      expect(user).toBeTruthy();
+      expect(user.length).toBeGreaterThan(0);
+      const parsed = JSON.parse(await client.getSystemInfo());
+      expect(parsed.user).toBe(user);
+    });
+
+    it('produces a cloud create body that SAP accepts (deserializes) — G-3', async () => {
+      // Target the default structure package (or any package): a CORRECT cloud body gets past XML
+      // deserialization to package-assignment (403 ExceptionResourceNoAccess). A WRONG body (e.g. one
+      // still carrying adtcore:responsible) fails earlier with 400 "error deserializing in CLASS_TRANSFORMATION".
+      const pkg = process.env.TEST_BTP_STRUCTURE_PACKAGE || 'ZLOCAL';
+      const name = 'ZCL_ARC1_BTP_BODYCHECK';
+      const body = buildCreateXml(
+        'CLAS',
+        name,
+        pkg,
+        'ARC-1 BTP body check',
+        undefined,
+        'EN',
+        await client.getEffectiveUser(),
+        true,
+      );
+      expect(body).not.toContain('adtcore:responsible');
+      expect(body).toContain('adtcore:abapLanguageVersion="cloudDevelopment"');
+      try {
+        await createObject(
+          client.http,
+          client.safety,
+          '/sap/bc/adt/oo/classes',
+          body,
+          createContentTypeForType('CLAS'),
+          undefined,
+          undefined,
+          '919',
+          'btp',
+          name,
+        );
+        // If it actually created (pkg was writable), clean up — body is obviously accepted.
+        await client.http.withStatefulSession(async (session) => {
+          const lock = await lockObject(
+            session,
+            client.safety,
+            `/sap/bc/adt/oo/classes/${name.toLowerCase()}`,
+            'MODIFY',
+            '919',
+            'btp',
+          );
+          await deleteObject(
+            session,
+            client.safety,
+            `/sap/bc/adt/oo/classes/${name.toLowerCase()}`,
+            lock.lockHandle,
+            lock.corrNr || undefined,
+          );
+        });
+      } catch (err) {
+        // The body must have deserialized — assert it did NOT fail at the create transformation.
+        const msg = err instanceof Error ? err.message : String(err);
+        expect(msg).not.toMatch(/deserializ|transformation program/i);
+        expectSapFailureClass(err, [403], [/package/i, /authoriz/i, /structure/i]);
+      }
+    });
+
+    // Positive lifecycle needs a writable, regular (non-structure) cloud package. The default ZLOCAL
+    // is a structure package and cannot host objects, so provide one via TEST_BTP_PACKAGE.
+    const writablePkg = process.env.TEST_BTP_PACKAGE;
+    (writablePkg ? it : it.skip)('CLAS create → activate → read → delete in a cloud package (G-3)', async () => {
+      const pkg = writablePkg as string;
+      const name = generateUniqueName('ZCL_ARC1_BTP');
+      const lc = name.toLowerCase();
+      const objectUrl = `/sap/bc/adt/oo/classes/${lc}`;
+      const sourceUrl = `${objectUrl}/source/main`;
+      const responsible = await client.getEffectiveUser();
+      const body = buildCreateXml('CLAS', name, pkg, 'ARC-1 BTP lifecycle test', undefined, 'EN', responsible, true);
+
+      let created = false;
+      try {
+        await createObject(
+          client.http,
+          client.safety,
+          '/sap/bc/adt/oo/classes',
+          body,
+          createContentTypeForType('CLAS'),
+          undefined,
+          undefined,
+          '919',
+          'btp',
+          name,
+        );
+        created = true;
+
+        // Deliberately NON-final: the cloud create metadata hardcodes class:final="true", so this
+        // exercises the mismatch — the source PUT must win and yield a non-final class (Codex review #2).
+        const source = [
+          `CLASS ${lc} DEFINITION PUBLIC CREATE PUBLIC.`,
+          '  PUBLIC SECTION.',
+          '    METHODS hello RETURNING VALUE(result) TYPE string.',
+          'ENDCLASS.',
+          `CLASS ${lc} IMPLEMENTATION.`,
+          '  METHOD hello.',
+          "    result = 'hi from ARC-1'.",
+          '  ENDMETHOD.',
+          'ENDCLASS.',
+        ].join('\n');
+        await client.http.withStatefulSession(async (session) => {
+          const lock = await lockObject(session, client.safety, objectUrl, 'MODIFY', '919', 'btp');
+          try {
+            await updateSource(session, client.safety, sourceUrl, source, lock.lockHandle, lock.corrNr || undefined);
+          } finally {
+            await unlockObject(session, objectUrl, lock.lockHandle);
+          }
+        });
+
+        await activate(client.http, client.safety, objectUrl, { name });
+
+        const read = await client.getClass(name);
+        expect(read.source).toContain('hello');
+        // Source wins over the hardcoded create metadata: the activated class is non-final (Codex #2).
+        expect(read.source).not.toMatch(/\bfinal\b/i);
+      } finally {
+        if (created) {
+          // best-effort-cleanup
+          try {
+            await client.http.withStatefulSession(async (session) => {
+              const lock = await lockObject(session, client.safety, objectUrl, 'MODIFY', '919', 'btp');
+              await deleteObject(session, client.safety, objectUrl, lock.lockHandle, lock.corrNr || undefined);
+            });
+          } catch {
+            // leave the object; a follow-up run reuses a fresh unique name
+          }
+        }
+      }
+    });
+
+    // INTF needs the v5 content-type on cloud — application/* routes to an older ST that drops the
+    // language version (HTTP 500 "ABAP language version  is not allowed"). Review fix; live-verified 919.
+    (writablePkg ? it : it.skip)(
+      'INTF create → activate → read → delete in a cloud package (v5 content-type)',
+      async () => {
+        const pkg = writablePkg as string;
+        const name = generateUniqueName('ZIF_ARC1_BTP');
+        const lc = name.toLowerCase();
+        const objectUrl = `/sap/bc/adt/oo/interfaces/${lc}`;
+        const responsible = await client.getEffectiveUser();
+        const body = buildCreateXml('INTF', name, pkg, 'ARC-1 BTP intf test', undefined, 'EN', responsible, true);
+
+        let created = false;
+        try {
+          await createObject(
+            client.http,
+            client.safety,
+            '/sap/bc/adt/oo/interfaces',
+            body,
+            createContentTypeForType('INTF', true),
+            undefined,
+            undefined,
+            '919',
+            'btp',
+            name,
+          );
+          created = true;
+
+          const source = [`INTERFACE ${lc} PUBLIC.`, '  METHODS ping.', 'ENDINTERFACE.'].join('\n');
+          await client.http.withStatefulSession(async (session) => {
+            const lock = await lockObject(session, client.safety, objectUrl, 'MODIFY', '919', 'btp');
+            try {
+              await updateSource(
+                session,
+                client.safety,
+                `${objectUrl}/source/main`,
+                source,
+                lock.lockHandle,
+                lock.corrNr || undefined,
+              );
+            } finally {
+              await unlockObject(session, objectUrl, lock.lockHandle);
+            }
+          });
+
+          await activate(client.http, client.safety, objectUrl, { name });
+          const read = await client.getInterface(name);
+          expect(read.source).toContain('ping');
+        } finally {
+          if (created) {
+            // best-effort-cleanup
+            try {
+              await client.http.withStatefulSession(async (session) => {
+                const lock = await lockObject(session, client.safety, objectUrl, 'MODIFY', '919', 'btp');
+                await deleteObject(session, client.safety, objectUrl, lock.lockHandle, lock.corrNr || undefined);
+              });
+            } catch {
+              // leave the object; a follow-up run reuses a fresh unique name
+            }
+          }
+        }
+      },
+    );
   });
 });
