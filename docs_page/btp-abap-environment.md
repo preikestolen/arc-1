@@ -392,7 +392,7 @@ Without this flag, ARC-1 auto-detects the system type on the first `SAPManage pr
 Object create/update works on the ABAP Environment (live-verified: `CLAS create → activate → read → delete`). ARC-1 emits the **cloud-correct** create body automatically when the system type is `btp` — it drops the on-prem `adtcore:masterSystem`/`adtcore:responsible` and adds `abapLanguageVersion="cloudDevelopment"`; the object owner is taken from your JWT. The same cloud-correct body covers the **RAP stack — BDEF, SRVD and SRVB create is live-verified on the ABAP Environment** (they keep their existing content types; no extra handling needed). **SRVB (service binding) `update` is also supported** — it is a full metadata replace via the binding's v2 content type that merges your changes over the existing binding (so a description-only edit keeps the bound `serviceDefinition`); live-verified create → update → re-point SRVD → delete on the ABAP Environment. The **server-driven object types (DESD, DTSC, CSNM, EVTB, EVTO, COTA)** also create cleanly — their minimal `blue:blueSource` body carries no owner/system attributes by construction (live-verified on the ABAP Environment). Two prerequisites:
 
 1. **Enable writes** — `SAP_ALLOW_WRITES=true`.
-2. **Target a real development package** — the booster-provided `ZLOCAL` is a *structure* package that cannot contain development objects, and `$TMP` does not exist on BTP. Create a development **sub-package under `ZLOCAL`** in ADT/Eclipse (e.g. `ZARC1_DEV`, software component `ZLOCAL`), then point the allowlist at it:
+2. **Target a real development package** — the booster-provided `ZLOCAL` is a *structure* package that cannot contain development objects, and `$TMP` does not exist on BTP. Create a development **sub-package under `ZLOCAL`** with ARC-1 (`SAPManage create_package` — see the note below) or ADT/Eclipse (e.g. `ZARC1_DEV`, software component `ZLOCAL`), then point the allowlist at it:
 
    ```bash
    SAP_ALLOW_WRITES=true
@@ -401,7 +401,7 @@ Object create/update works on the ABAP Environment (live-verified: `CLAS create 
 
 You also need the developer role assigned — see [Required: Run the Booster and Assign Developer Role](#required-run-the-booster-and-assign-developer-role).
 
-> **Package creation is Eclipse-only.** ARC-1 cannot create the package for you. The ABAP Environment rejects the package-create body every ADT REST client sends (`SPAK_ST_PACKAGES` won't accept `adtcore:responsible`, yet the package framework requires it — Eclipse's interactive session resolves the owner a bearer token can't). Create the dev package once in Eclipse; everything **inside** it is then fully scriptable via ARC-1.
+> **Creating packages on BTP.** `SAPManage(action="create_package")` emits the cloud-correct body when `systemType=btp`: it nests the new package under the structure `superPackage` (e.g. `ZLOCAL`), sets software component `ZLOCAL`, and uses your **internal ABAP user** (XUBNAME, e.g. `CB9980000000`) as `responsible` — the IAS email is rejected and `responsible` can't be omitted. ARC-1 auto-resolves the internal user from the `createdBy` of any object you create in the session (no whoami endpoint); otherwise pass `responsible="<your internal user>"` (from `SAPRead` `createdBy` on an object you own). Only a brand-new tenant's first-ever package — no objects yet, no explicit `responsible` — still needs a one-time Eclipse bootstrap. See `docs/research/2026-06-27-btp-package-create-solved.md`.
 
 ## Constraints vs On-Premise
 

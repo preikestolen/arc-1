@@ -46,7 +46,8 @@ export interface SapErrorClassification {
     | 'icf-service-inactive'
     | 'bdef-base-not-extensible'
     | 'include-not-initialized'
-    | 'data-view-not-authorized';
+    | 'data-view-not-authorized'
+    | 'package-create-invalid';
   hint: string;
   transaction?: string;
   details?: Record<string, string>;
@@ -578,6 +579,31 @@ export function classifySapDomainError(
         'object S_ABPLNGVS) — not a role you can grant. Query a released CDS view instead (SAPQuery ' +
         'against a C1-released view), or read/preview a custom Z* table you own.',
       details: typeId ? { exceptionType: typeId } : undefined,
+    };
+  }
+
+  // BTP package create: the IAS email as responsible fails the package deserialize ST (SPAK_ST_PACKAGES);
+  // it must be a valid internal ABAP user (XUBNAME). Live-verified 919.
+  if (typeId === 'ExceptionInvalidData' && /SPAK_ST_PACKAGES/.test(bodyRaw)) {
+    return {
+      category: 'package-create-invalid',
+      hint:
+        'Package create rejected: on the ABAP Environment the person-responsible must be a valid ' +
+        'internal ABAP user (XUBNAME, e.g. CB9980000000), not an IAS email. Omit `responsible` to ' +
+        'auto-resolve it, or pass the internal user.',
+      details: { exceptionType: typeId },
+    };
+  }
+
+  // BTP package create: a root package (no structure superPackage) → HTTP 400
+  // ExceptionResourceCreationFailure "... is not a valid software component" (TR/458). Live-verified 919.
+  if (typeId === 'ExceptionResourceCreationFailure' && /is not a valid software component/i.test(bodyRaw)) {
+    return {
+      category: 'package-create-invalid',
+      hint:
+        'On the ABAP Environment a new package must nest under a structure package. Pass `superPackage` ' +
+        '(e.g. "ZLOCAL") so the package is created inside it, rather than as a root package.',
+      details: { exceptionType: typeId },
     };
   }
 

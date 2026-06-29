@@ -25,7 +25,7 @@ import type { ServerConfig } from '../server/types.js';
 import { cachedFeatures, setCachedFeatures } from './feature-cache.js';
 import { inferObjectType, normalizeObjectType, objectUrlForTypeRaw } from './object-types.js';
 import { errorResult, type ToolResult, textResult } from './shared.js';
-import { enforceAllowedPackageForObjectUrl } from './write-helpers.js';
+import { enforceAllowedPackageForObjectUrl, resolveWriteSystemType } from './write-helpers.js';
 
 // ─── SAPManage Handler ────────────────────────────────────────────────
 
@@ -104,6 +104,7 @@ export async function handleSAPManage(
       const transportLayer = String(args.transportLayer ?? '').trim();
       const recordChanges = typeof args.recordChanges === 'boolean' ? args.recordChanges : undefined;
       const transport = String(args.transport ?? '').trim();
+      const responsibleArg = String(args.responsible ?? '').trim();
 
       if (!name) return errorResult('"name" is required for create_package action.');
       if (!description) return errorResult('"description" is required for create_package action.');
@@ -124,11 +125,34 @@ export async function handleSAPManage(
         await checkPackage(client.safety, name, client.getPackageHierarchyResolver());
       }
 
+      // BTP: responsible must be the internal ABAP user (never the email — getEffectiveUser is unused);
+      // resolve explicit arg → cached internal user → error. Cloud also skips the transport pre-flight
+      // below. Details: docs/research/2026-06-27-btp-package-create-solved.md.
+      const systemType = resolveWriteSystemType(config, client);
+      const cloud = systemType === 'btp';
+      const responsible = cloud ? responsibleArg || client.getInternalUser() || '' : config.username;
+      if (cloud) {
+        if (!superPackage) {
+          return errorResult(
+            'BTP packages must nest under a structure package: pass superPackage (e.g. "ZLOCAL"). ' +
+              'A root package create is rejected with TR/458 ("… is not a valid software component").',
+          );
+        }
+        if (!responsible || responsible.includes('@')) {
+          return errorResult(
+            'BTP package create needs your internal ABAP user (XUBNAME, e.g. CB9980000000) as ' +
+              'person-responsible — the IAS email is rejected. Pass responsible="<internal user>" (from ' +
+              'SAPRead createdBy on an object you own), or create any object first to auto-resolve it.',
+          );
+        }
+      }
+
       let effectiveTransport = transport || undefined;
       const packageUrl = `/sap/bc/adt/packages/${encodeURIComponent(name)}`;
 
-      // Transport pre-flight for non-local parent packages when no transport is provided.
-      if (!effectiveTransport && superPackage && superPackage.toUpperCase() !== '$TMP') {
+      // Transport pre-flight for non-local parent packages when no transport is provided. Skipped on
+      // cloud — BTP packages under the local SC need no STMS transport (live-verified: ZLOCAL → 201).
+      if (!cloud && !effectiveTransport && superPackage && superPackage.toUpperCase() !== '$TMP') {
         try {
           const transportInfo = await getTransportInfo(client.http, client.safety, packageUrl, superPackage, 'I');
           if (transportInfo.lockedTransport) {
@@ -169,7 +193,8 @@ export async function handleSAPManage(
         transportLayer: transportLayer || undefined,
         recordChanges,
         packageType,
-        responsible: config.username,
+        responsible,
+        cloud,
       });
 
       await createObject(
