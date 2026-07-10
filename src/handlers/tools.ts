@@ -173,13 +173,17 @@ const SAPCONTEXT_DESC_BTP =
 
 // ─── SAPQuery ───────────────────────────────────────────────────────
 
+const SAPQUERY_DIALECT_GUIDE =
+  'ADT freestyle ABAP SQL: one read-only SELECT; use AS aliases, alias~field/alias~*, ASCENDING/DESCENDING, single-quoted inline literals (no @/:/? parameters), and maxRows (not TOP/LIMIT/OFFSET/FETCH). JOINs, GROUP BY, aggregates, UNION, and subqueries work; schema prefixes, CTEs, derived tables, window functions, FULL JOIN, INTERSECT/EXCEPT, comments, and semicolons do not. ARC-1 auto-chunks long literal IN-lists in plain projection SELECTs. ';
+
 const SAPQUERY_DESC_ONPREM =
   'Execute ABAP SQL queries against SAP tables. Returns columns + rows. Good for reverse-engineering metadata tables (DD02L, DD03L, TADIR, TFDIR, SWOTLV). Unknown tables get name suggestions. ' +
-  'Uses the ADT freestyle SQL endpoint; its parser can reject valid-looking statements on some releases — ARC-1 automatically chunks simple long literal IN lists; if parsing still fails, use one SELECT and stage multi-table logic (SAP Note 3605050). ' +
+  SAPQUERY_DIALECT_GUIDE +
   'To find CDS consumers do NOT text-scan DDDDLSRC/ACMDCLSRC/DDLXSRC_SRC — use SAPContext(action="impact", type="DDLS") (where-used index, filtered buckets).';
 
 const SAPQUERY_DESC_BTP =
   'Execute ABAP SQL queries (BTP ABAP Environment). Returns structured data with column names and rows. ' +
+  SAPQUERY_DIALECT_GUIDE +
   'IMPORTANT: On BTP, only custom Z/Y tables and released CDS entities can be queried. ' +
   'SAP standard tables (MARA, VBAK, DD02L, DD03L, TADIR, etc.) are blocked. ' +
   'Use released CDS views instead: I_LANGUAGE, I_COUNTRY, I_CURRENCY, I_UnitOfMeasure, etc. ' +
