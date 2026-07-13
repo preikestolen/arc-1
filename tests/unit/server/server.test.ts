@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { BTPConfig } from '@arc-mcp/xsuaa-auth/btp';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
@@ -307,6 +308,7 @@ describe('createServer request handlers', () => {
   it('rejects API-key calls in strict principal-propagation mode', async () => {
     const server = createServer({
       ...DEFAULT_CONFIG,
+      apiKeys: [{ key: 'plain-api-key', profile: 'admin' }],
       ppEnabled: true,
       ppStrict: true,
       ppStrictExplicit: true,
@@ -329,9 +331,10 @@ describe('createServer request handlers', () => {
     expect(result.content?.[0]?.text).toContain('Principal propagation requires a JWT token');
   });
 
-  it('allows API-key calls when PP fail-closed mode is only the derived default', async () => {
+  it('allows JWT-shaped API-key calls when PP fail-closed mode is only the derived default', async () => {
     const server = createServer({
       ...DEFAULT_CONFIG,
+      apiKeys: [{ key: 'key.part.value', profile: 'admin' }],
       ppEnabled: true,
       ppStrict: true,
       ppStrictExplicit: false,
@@ -342,7 +345,7 @@ describe('createServer request handlers', () => {
       { method: 'tools/call', params: { name: 'SAPRead', arguments: {} } },
       {
         authInfo: {
-          token: 'plain-api-key',
+          token: 'key.part.value',
           clientId: 'api-key:admin',
           scopes: ['admin'],
           extra: {},
@@ -351,7 +354,130 @@ describe('createServer request handlers', () => {
     );
 
     expect(result.content?.[0]?.text).not.toContain('Principal propagation requires a JWT token');
+    expect(result.content?.[0]?.text).not.toContain('Principal propagation failed');
     expect(result.content?.[0]?.text).toContain('Invalid arguments');
+  });
+
+  it('allows JWT-shaped API-key calls when ppStrict is explicitly false', async () => {
+    const server = createServer({
+      ...DEFAULT_CONFIG,
+      apiKeys: [{ key: 'key.part.value', profile: 'admin' }],
+      ppEnabled: true,
+      ppStrict: false,
+      ppStrictExplicit: true,
+    });
+    const handler = requestHandler(server, CallToolRequestSchema.shape.method.value);
+
+    const result = await handler(
+      { method: 'tools/call', params: { name: 'SAPRead', arguments: {} } },
+      {
+        authInfo: {
+          token: 'key.part.value',
+          clientId: 'api-key:admin',
+          scopes: ['admin'],
+          extra: {},
+        },
+      },
+    );
+
+    expect(result.content?.[0]?.text).not.toContain('Principal propagation requires a JWT token');
+    expect(result.content?.[0]?.text).not.toContain('Principal propagation failed');
+    expect(result.content?.[0]?.text).toContain('Invalid arguments');
+  });
+
+  it('does not infer API-key provenance from a colliding OIDC clientId', async () => {
+    const server = createServer({
+      ...DEFAULT_CONFIG,
+      apiKeys: [{ key: 'real-api-key', profile: 'viewer' }],
+      ppEnabled: true,
+      ppStrict: false,
+      ppStrictExplicit: true,
+    });
+    const handler = requestHandler(server, CallToolRequestSchema.shape.method.value);
+
+    const result = await handler(
+      { method: 'tools/call', params: { name: 'SAPRead', arguments: {} } },
+      {
+        authInfo: {
+          token: 'header.payload.signature',
+          clientId: 'api-key:viewer',
+          scopes: ['read'],
+          extra: { iss: 'https://issuer.example' },
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toContain('BTP runtime configuration is unavailable');
+    expect(result.content?.[0]?.text).not.toContain('Invalid arguments');
+  });
+
+  it('fails closed on JWT principal-propagation errors even when ppStrict is false', async () => {
+    const ppDestination = process.env.SAP_BTP_PP_DESTINATION;
+    const sharedDestination = process.env.SAP_BTP_DESTINATION;
+    delete process.env.SAP_BTP_PP_DESTINATION;
+    delete process.env.SAP_BTP_DESTINATION;
+
+    try {
+      const server = createServer(
+        {
+          ...DEFAULT_CONFIG,
+          ppEnabled: true,
+          ppStrict: false,
+          ppStrictExplicit: true,
+        },
+        undefined,
+        {} as BTPConfig,
+      );
+      const handler = requestHandler(server, CallToolRequestSchema.shape.method.value);
+
+      const result = await handler(
+        { method: 'tools/call', params: { name: 'SAPRead', arguments: {} } },
+        {
+          authInfo: {
+            token: 'header.payload.signature',
+            clientId: 'oidc-client',
+            scopes: ['read'],
+            extra: { userName: 'PP_USER' },
+          },
+        },
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content?.[0]?.text).toContain('Principal propagation failed');
+      expect(result.content?.[0]?.text).not.toContain('Invalid arguments');
+    } finally {
+      if (ppDestination === undefined) delete process.env.SAP_BTP_PP_DESTINATION;
+      else process.env.SAP_BTP_PP_DESTINATION = ppDestination;
+      if (sharedDestination === undefined) delete process.env.SAP_BTP_DESTINATION;
+      else process.env.SAP_BTP_DESTINATION = sharedDestination;
+    }
+  });
+
+  it('fails closed when a PP-enabled JWT request has no BTP runtime configuration', async () => {
+    const server = createServer({
+      ...DEFAULT_CONFIG,
+      ppEnabled: true,
+      ppStrict: false,
+      ppStrictExplicit: true,
+    });
+    const handler = requestHandler(server, CallToolRequestSchema.shape.method.value);
+
+    const result = await handler(
+      { method: 'tools/call', params: { name: 'SAPRead', arguments: {} } },
+      {
+        authInfo: {
+          token: 'header.payload.signature',
+          clientId: 'oidc-client',
+          scopes: ['read'],
+          extra: { userName: 'PP_USER' },
+        },
+      },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content?.[0]?.text).toContain('BTP runtime configuration is unavailable');
+    expect(result.content?.[0]?.text).not.toContain('Invalid arguments');
   });
 
   it('marks default-client cookies stale once after non-blocking cookie preflight 401', async () => {
@@ -623,9 +749,10 @@ describe('logAuthSummary', () => {
     expect(infoSpy).toHaveBeenCalledWith('auth: MCP=[oidc] SAP=pp (per-user)');
   });
 
-  it('logs combined api-keys+oidc MCP auth and cookie+pp SAP auth', () => {
+  it('labels and warns about mixed API-key and PP SAP identities', () => {
     delete process.env.SAP_BTP_DESTINATION;
     const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
 
     logAuthSummary({
       ...DEFAULT_CONFIG,
@@ -637,7 +764,30 @@ describe('logAuthSummary', () => {
       ppEnabled: true,
     });
 
-    expect(infoSpy).toHaveBeenCalledWith('auth: MCP=[api-keys,oidc] SAP=cookie+pp (per-user)');
+    expect(infoSpy).toHaveBeenCalledWith(
+      'auth: MCP=[api-keys,oidc] SAP=cookie+pp (mixed: JWT per-user, API keys shared)',
+    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Mixed mode is supported'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Separate instances are recommended'));
+  });
+
+  it('warns when API keys are configured on an explicitly strict PP-only instance', () => {
+    delete process.env.SAP_BTP_DESTINATION;
+    const infoSpy = vi.spyOn(logger, 'info').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+
+    logAuthSummary({
+      ...DEFAULT_CONFIG,
+      apiKeys: [{ key: 'k', profile: 'viewer' }],
+      xsuaaAuth: true,
+      ppEnabled: true,
+      ppStrict: true,
+      ppStrictExplicit: true,
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith('auth: MCP=[api-keys,xsuaa] SAP=pp (per-user)');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('rejects API-key MCP tool calls'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('supported mixed operation'));
   });
 });
 

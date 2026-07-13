@@ -78,7 +78,7 @@ Pick one primary method. Combining methods that conflict (e.g. basic + cookies +
 
 | Flag | Env var | Effect |
 |---|---|---|
-| `--user` | `SAP_USER` | Username sent in `Authorization: Basic` on every ADT request. With `SAP_PP_ENABLED=true`, this becomes the *fallback* technical user used only when per-user PP is unavailable. |
+| `--user` | `SAP_USER` | Username sent in `Authorization: Basic` on shared-client ADT requests. With `SAP_PP_ENABLED=true`, API-key / non-JWT requests may still use this technical user unless `SAP_PP_STRICT=true` was set explicitly. A failed JWT PP request never falls back to this identity. |
 | `--password` | `SAP_PASSWORD` | Password for the above. Redacted from all logs. |
 
 #### B2. Cookie auth (dev-only SSO bridge)
@@ -114,7 +114,7 @@ Full reference: [btp-destination-setup.md](btp-destination-setup.md).
 | Flag | Env var | Default | Effect |
 |---|---|---|---|
 | `--pp-enabled` | `SAP_PP_ENABLED` | `false` | Enables ARC-1's per-user destination path. For on-premise SAP this resolves a `PrincipalPropagation` destination through Connectivity Service and Cloud Connector. For BTP ABAP Environment this resolves an `OAuth2UserTokenExchange` destination and uses the returned ABAP bearer token. Without it, every SAP call uses the shared technical client. |
-| `--pp-strict` | `SAP_PP_STRICT` | `true` when PP is enabled | When JWT PP fails (token mapping missing, destination unavailable), the default is to return an error to the MCP caller — no shared-client fallback. Set explicitly to `false` only when you intentionally want fallback to the shared technical client. Set explicitly to `true` only when API-key / non-JWT requests should also be rejected. |
+| `--pp-strict` | `SAP_PP_STRICT` | `true` when PP is enabled | JWT PP failures always return an error and never change to the shared identity. Explicit `true` gives the recommended strict topology and rejects API-key / non-JWT tool calls. Explicit `false` enables supported mixed operation, in which API keys use the shared client; it never enables JWT fallback. Separate instances are recommended, not required. |
 | `--pp-allow-shared-cookies` | `SAP_PP_ALLOW_SHARED_COOKIES` | `false` | Escape hatch. Without it, setting `SAP_COOKIE_FILE`/`SAP_COOKIE_STRING` together with `SAP_PP_ENABLED=true` fails at startup (cookies belong to one user, PP wants per-user). With `true`, cookies stay on the shared client only and PP traffic runs cookie-free. |
 
 Full reference: [principal-propagation-setup.md](principal-propagation-setup.md).

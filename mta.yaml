@@ -114,6 +114,9 @@ modules:
       # PrincipalPropagation destination for per-user requests (with JWT)
       SAP_BTP_PP_DESTINATION: your-pp-destination
       SAP_PP_ENABLED: "true"
+      # Recommended default: accept only JWT-backed per-user SAP calls. Set false
+      # via an override for supported mixed PP/API-key operation in one instance.
+      SAP_PP_STRICT: "true"
       # Authorization / safety defaults. Keep the MTA conservative; widen per
       # landscape via `mta-overrides.mtaext` or `cf set-env` only when the
       # target system actually needs it.

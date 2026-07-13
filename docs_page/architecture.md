@@ -279,11 +279,11 @@ flowchart TD
     ServiceKey --> SAP
 ```
 
-With principal propagation enabled, JWT requests fail closed by default if ARC-1
-cannot build the per-user SAP client. Set `SAP_PP_STRICT=false` explicitly only
-when a failed per-user lookup may fall back to the shared client after logging an
-audit event. Set `SAP_PP_STRICT=true` explicitly when API-key / non-JWT requests
-should be rejected too.
+With principal propagation enabled, JWT requests always fail closed if ARC-1 cannot
+build the per-user SAP client. With explicit `SAP_PP_STRICT=false`, API-key / non-JWT
+requests continue through the shared client because they do not enter the JWT PP path.
+That mixed topology is supported. The recommended topology sets `SAP_PP_STRICT=true`
+and runs API-key automation on a separate non-PP instance with a technical SAP identity.
 
 ## Safety system
 
