@@ -116,7 +116,7 @@ const SAPCONTEXT_DESC_ONPREM =
   '- "What breaks if I change <CDS>?" / "Who consumes <I_*>?" / "Blast radius" → action="impact" (DDLS only).\n' +
   '- "Which includes/appends extend <TABL>?" → action="structure", type="TABL".\n' +
   '- "What does <object> do?" / "Explain" / "deps before editing" → action="deps" (default).\n' +
-  '- "Find all callers of <object>" (needs cache warmup) → action="usages".\n\n' +
+  '- "Find all callers of <object>" → action="usages" (live SAP where-used lookup).\n\n' +
   'impact (CDS blast-radius): upstream AST deps + downstream where-used, classified into RAP buckets (projectionViews, bdefs, serviceDefinitions, serviceBindings, accessControls, metadataExtensions, abapConsumers, documentation, tables, other) + sibling-consistency hints. Use this instead of text-scanning DDDDLSRC/ACMDCLSRC with SAPQuery (it filters the noise). Optional includeIndirect, siblingCheck, siblingMaxCandidates.\n' +
   'deps (default): target KTD + the public API contracts of its dependencies (not full source) — one compact response vs N SAPRead calls (7-30x fewer tokens); SAP standard objects filtered out. For CDS, includes dependency DDL/field catalogs for cl_cds_test_environment.\n' +
   'structure (TABL only): the DDIC include/append tree.\n\n' +
@@ -128,6 +128,7 @@ const SAPCONTEXT_DESC_BTP =
   '- "What breaks if I change <CDS>?" / "Who consumes <I_*>?" / "Blast radius" → action="impact" (DDLS only).\n' +
   '- "Which includes/appends extend <TABL>?" → action="structure", type="TABL".\n' +
   '- "What does <object> do?" / "Explain" / "deps before editing" → action="deps" (default).\n\n' +
+  '- "Find all callers of <object>" → action="usages" (live SAP where-used lookup).\n\n' +
   'impact (CDS blast-radius): upstream AST deps + downstream where-used classified into RAP buckets (projectionViews, bdefs, serviceDefinitions, serviceBindings, accessControls, metadataExtensions, abapConsumers, documentation, tables, other) + sibling-consistency hints; filters the noise that text-scanning with SAPQuery produces. Optional includeIndirect, siblingCheck, siblingMaxCandidates.\n' +
   'deps (default): target KTD + the public API contracts of its dependencies (not full source). On BTP, released SAP objects (CL_ABAP_*/IF_ABAP_*) and custom Z/Y are included.\n' +
   'structure (TABL only): the DDIC include/append tree.\n\n' +
@@ -201,7 +202,7 @@ const SAPMANAGE_DESC_BTP =
   'Actions:\n' +
   '- "features": Get cached feature status from last probe.\n' +
   '- "probe": Re-probe the SAP system now (feature probes + discovery refresh).\n' +
-  '- "cache_stats": Show object cache health and warmup state.\n' +
+  '- "cache_stats": Show request-driven object cache health.\n' +
   '- "create_package": Create a package (DEVC) via ADT packages API.\n' +
   '- "delete_package": Delete an existing package.\n' +
   '- FLP actions: flp_list_catalogs, flp_list_groups, flp_list_tiles, flp_create_catalog, flp_create_group, flp_create_tile, flp_add_tile_to_group, flp_delete_catalog.\n' +
@@ -1305,13 +1306,14 @@ export function getToolDefinitions(
             'Action:\n' +
             '"impact" = CDS blast-radius analysis (DDLS only). USE THIS for any question like "what breaks if I change <view>", "who consumes <I_*>", "impact analysis on <CDS>", "downstream of <view>". Returns upstream AST dependencies + downstream where-used classified into RAP buckets (projectionViews, bdefs, serviceDefinitions, serviceBindings, accessControls, metadataExtensions, abapConsumers, documentation, tables, other), plus additive sibling-consistency diagnostics (consistencyHints + siblingExtensionAnalysis) when related DDLS siblings show asymmetric DDLX coverage. ALWAYS prefer over SAPQuery against DDDDLSRC/ACMDCLSRC/DDLXSRC_SRC/SRVDSRC_SRC (those text-scans produce noise this classifier filters out). Non-DDLS input returns a guardrail error.\n' +
             '"deps" (default, can be omitted) = object understanding / forward dependency context — "what does <object> do?" or "what does <object> depend on?". Returns the object KTD when available plus public API contracts of dependencies.\n' +
-            '"usages" = reverse dependency lookup — "who calls <object>?". Requires cache warmup (--cache-warmup). Only "name" is needed. For CDS entities prefer action="impact" instead.\n' +
+            '"usages" = live SAP where-used lookup. Provide "type" when known; without it, the name must resolve uniquely. Prefer "impact" for CDS.\n' +
             '"structure" = TABL includes/appends.',
         },
         type: {
           type: 'string',
           enum: btp ? SAPCONTEXT_TYPES_BTP : SAPCONTEXT_TYPES_ONPREM,
-          description: 'Object type. Optional for action="impact" (defaults to DDLS); required otherwise.',
+          description:
+            'Object type. Optional for action="impact" (defaults to DDLS) or action="usages"; required otherwise.',
         },
         name: {
           type: 'string',
